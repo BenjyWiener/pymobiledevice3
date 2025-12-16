@@ -2,9 +2,13 @@ import dataclasses
 import math
 import os
 import struct
+from collections.abc import Callable, Iterator
 from io import BytesIO
+from types import SimpleNamespace
+from typing import AnyStr, Generic, Optional, Union, cast
+from typing_extensions import TypeAlias
 
-from pymobiledevice3.services.remote_server import Tap
+from pymobiledevice3.services.remote_server import RemoteServer, Tap
 
 CMD_DEFINE_TABLE = 1
 CMD_END_ROW = 2
@@ -18,14 +22,18 @@ CMD_DEBUG = 0x6B
 
 
 @dataclasses.dataclass
-class Table:
-    unknown0: str
-    unknown2: str
-    name: str
-    columns: list
+class Table(Generic[AnyStr]):
+    unknown0: bytes
+    unknown2: bytes
+    name: AnyStr
+    columns: list[AnyStr]
 
 
-def decode_str(s: bytes):
+class Message(SimpleNamespace):
+    """Opaque message container"""
+
+
+def decode_str(s: bytes) -> str:
     return s.split(b"\x00", 1)[0].decode()
 
 
@@ -67,17 +75,20 @@ def decode_message_format(message) -> str:
             s += str(uint64)
         elif type_ in ("data", "uuid"):
             if data is not None:
-                s += b"".join(data).hex()
+                s += b"".join(cast(list[bytes], data)).hex()
         else:
             # by default, make sure the data can be concatenated
             s += str(data)
     return s
 
 
+_Stack: TypeAlias = "list[Union[Optional[bytes], _Stack]]"
+
+
 class ActivityTraceTap(Tap):
     IDENTIFIER = "com.apple.instruments.server.services.activitytracetap"
 
-    def __init__(self, dvt, enable_http_archive_logging=False):
+    def __init__(self, dvt: RemoteServer, enable_http_archive_logging: bool = False) -> None:
         # TODO:
         #   reverse: [DTOSLogLoader _handleRecord:], DTTableRowEncoder::*
         #   to understand each row's structure.
@@ -89,8 +100,9 @@ class ActivityTraceTap(Tap):
             "machTimebaseNumer": 125,
             "onlySignposts": 0,
             "pidToInjectCombineDYLIB": "-1",
-            "predicate": "(messageType == info OR messageType == debug OR messageType == default OR "
-            "messageType == error OR messageType == fault)",
+            "predicate": (
+                "(messageType == info OR messageType == debug OR messageType == default OR messageType == error OR messageType == fault)"
+            ),
             "signpostsAndLogs": 1,
             "trackPidToExecNameMapping": True,
             "enableHTTPArchiveLogging": enable_http_archive_logging,
@@ -101,22 +113,22 @@ class ActivityTraceTap(Tap):
 
         super().__init__(dvt, self.IDENTIFIER, config)
 
-        self.stack = []
+        self.stack: _Stack = []
         self.generation = 0
         self.background = 0
-        self.tables = []
+        self.tables: list[Table[str]] = []
 
-    def _get_next_message(self):
+    def _get_next_message(self) -> None:
         message = b""
-        while message.startswith(b"bplist") or len(message) == 0:
+        while not message or message.startswith(b"bplist"):
             # ignore heartbeat messages
             message = self.channel.receive_message()
         self._set_current_message(message)
 
-    def _set_current_message(self, message):
+    def _set_current_message(self, message: bytes) -> None:
         self._message = BytesIO(message)
 
-    def _seek_relative(self, offset):
+    def _seek_relative(self, offset: int) -> None:
         self._message.seek(offset, os.SEEK_CUR)
 
     def _peek_word(self) -> int:
@@ -127,12 +139,12 @@ class ActivityTraceTap(Tap):
         self._message.seek(-2, os.SEEK_CUR)
         return word
 
-    def _read_word(self):
+    def _read_word(self) -> int:
         word = self._peek_word()
         self._message.seek(2, os.SEEK_CUR)
         return word
 
-    def _handle_push(self, word):
+    def _handle_push(self, word: int) -> bytes:
         assert word >> 14 in (0b10, 0b11), f"invalid magic for pushed item. word: {hex(word)}"
 
         count = 0
@@ -156,17 +168,17 @@ class ActivityTraceTap(Tap):
 
         return result
 
-    def _handle_table_reset(self, word):
+    def _handle_table_reset(self, word: int) -> None:
         """start new table vector"""
         self.generation += 1
         self.background = 0
         self.stack = []
 
-    def _handle_sentinel(self, word):
+    def _handle_sentinel(self, word: int) -> None:
         """push a dummy"""
         self.stack.append(None)
 
-    def _handle_struct(self, word):
+    def _handle_struct(self, word: int) -> None:
         """replace last `distance` items with a single one which represents them as a tuple"""
         distance = word & 0xFF
 
@@ -178,11 +190,13 @@ class ActivityTraceTap(Tap):
         self.stack = self.stack[:-distance]
         self.stack.append(new_item)
 
-    def _handle_define_table(self, word):
+    def _handle_define_table(self, word: int) -> None:
         """define a table struct"""
         distance = 4
 
-        table_raw = Table(*self.stack[-distance:])
+        table_raw: Table[bytes] = Table(
+            *self.stack[-distance:]  # type: ignore  # noqa: PGH003
+        )
         table = Table(
             name=table_raw.name.split(b"\x00", 1)[0].decode(),
             columns=[c.split(b"\x00", 1)[0].decode() for c in table_raw.columns],
@@ -193,11 +207,11 @@ class ActivityTraceTap(Tap):
         self.stack = self.stack[:-distance]
         self.tables.append(table)
 
-    def _handle_debug(self, word):
+    def _handle_debug(self, word: int) -> None:
         """pop last pushed item from stack"""
         debug_id = word & 0xFF
         item = self.stack[-1]
-
+        assert isinstance(item, bytes)
         reference = int.from_bytes(item, byteorder="little")
 
         assert reference == len(self.stack) - 1, (
@@ -205,7 +219,7 @@ class ActivityTraceTap(Tap):
         )
         self.stack = self.stack[:-1]
 
-    def _handle_copy(self, word):
+    def _handle_copy(self, word: int) -> None:
         """copy item at distance from stack"""
         distance = word & 0xFF
         if distance != 0xFF:
@@ -214,19 +228,19 @@ class ActivityTraceTap(Tap):
         else:
             # long struct - pop distance from stack
             item = self.stack[-1]
+            assert isinstance(item, bytes)
             reference = int.from_bytes(item, byteorder="little") - 1
             self.stack = self.stack[:-1]
             self.stack.append(self.stack[reference])
 
-    def _handle_end_row(self, word):
+    def _handle_end_row(self, word: int) -> Optional[Message]:
         """flush current row"""
         generation = word & 0xFF
         columns = self.tables[generation].columns
         row = self.stack[-len(columns) :]
         self.stack = self.stack[: -len(columns)]
 
-        Message = dataclasses.make_dataclass("message", [c.replace("-", "_") for c in columns])
-        message = Message(*row)
+        message = Message(**dict(zip((c.replace("-", "_") for c in columns), row)))
         message.process = 0 if message.process is None else struct.unpack("<I", message.process[0].ljust(4, b"\x00"))[0]
         message.thread = struct.unpack("<I", message.thread[0].ljust(4, b"\x00"))[0]
 
@@ -247,20 +261,20 @@ class ActivityTraceTap(Tap):
         if hasattr(message, "message"):
             return message
 
-    def _handle_placeholder_count(self, word):
+    def _handle_placeholder_count(self, word: int) -> None:
         """remove `count` last items from stack"""
         count = word & 0xFF
         if count > 0:
             self.stack = self.stack[:-count]
 
-    def _handle_convert_mach_continuous(self, word):
+    def _handle_convert_mach_continuous(self, word: int) -> None:
         """push an item and pop it. effectively do nothing"""
         pass
 
-    def _parse(self):
+    def _parse(self) -> Iterator[Message]:
         word = self._read_word()
 
-        operations = {
+        operations: dict[int, Callable[[int], Optional[Message]]] = {
             CMD_TABLE_RESET: self._handle_table_reset,
             CMD_SENTINEL: self._handle_sentinel,
             CMD_STRUCT: self._handle_struct,
@@ -277,18 +291,18 @@ class ActivityTraceTap(Tap):
 
             if opcode in operations:
                 result = operations[opcode](word)
+
+                if opcode == CMD_END_ROW and result is not None:
+                    yield result
             else:
                 self._handle_push(word)
-
-            if opcode == CMD_END_ROW and result is not None:
-                yield result
 
             try:
                 word = self._read_word()
             except EOFError:
                 break
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Message]:
         while True:
             self._get_next_message()
             yield from self._parse()

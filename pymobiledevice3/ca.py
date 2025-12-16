@@ -10,21 +10,28 @@ from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption,
 from cryptography.x509 import Certificate
 from cryptography.x509.oid import NameOID
 
+from pymobiledevice3.exceptions import PyMobileDevice3Exception
+
 _SERIAL = 1
 
 
-def select_hash_algorithm(device_version: Union[tuple[int, int, int], str, None]) -> hashes.HashAlgorithm:
+def select_hash_algorithm(device_version: Union[tuple[int, int, int], str, None]) -> hashes.SHA256:
     """
     Choose hash algorithm to match libimobiledevice (idevicepair) logic.
 
     :param device_version: Device version tuple (major, minor, patch) or "a.b.c" string.
                            If None, defaults to SHA-256 (modern).
-    :returns: SHA-1 if version < 4.0.0, else SHA-256.
+    :returns: SHA-256 if version >= 4.0.0, else raises a `PyMobileDevice3Exception`
     """
-    if device_version is None:
-        return hashes.SHA256()
-    parts = tuple(int(x) for x in device_version.split(".")) if isinstance(device_version, str) else device_version
-    return hashes.SHA1() if parts < (4, 0, 0) else hashes.SHA256()
+
+    if device_version is not None:
+        parts = tuple(int(x) for x in device_version.split(".")) if isinstance(device_version, str) else device_version
+        if parts < (4, 0, 0):
+            # As of cryptography 39.0.0, SHA1 is no longer supported for certificate signing.
+            # The last version of pymobiledevice3 compatibile with cryptography<39.0.0 was 2.2.2.
+            raise PyMobileDevice3Exception(f"Unsupported iOS version ({'.'.join(map(str, parts))})")
+
+    return hashes.SHA256()
 
 
 def get_validity_bounds(years: int = 10) -> tuple[datetime, datetime]:
@@ -63,7 +70,7 @@ def serialize_private_key_pkcs8_pem(key: RSAPrivateKey) -> bytes:
 # =======================================
 
 
-def build_root_certificate(root_key: RSAPrivateKey, alg: hashes.HashAlgorithm) -> Certificate:
+def build_root_certificate(root_key: RSAPrivateKey, alg: hashes.SHA256) -> Certificate:
     """
     Build a self-signed root (CA) certificate:
     - Empty subject/issuer (x509.Name([]))
@@ -94,7 +101,7 @@ def build_host_certificate(
     host_key: RSAPrivateKey,
     root_cert: Certificate,
     root_key: RSAPrivateKey,
-    alg: hashes.HashAlgorithm,
+    alg: hashes.SHA256,
 ) -> Certificate:
     """
     Build the host (leaf) certificate signed by the root:
@@ -143,7 +150,7 @@ def build_device_certificate(
     device_public_key: RSAPublicKey,
     root_cert: Certificate,
     root_key: RSAPrivateKey,
-    alg: hashes.HashAlgorithm,
+    alg: hashes.SHA256,
 ) -> Certificate:
     """
     Build the device certificate (leaf) signed by the root:

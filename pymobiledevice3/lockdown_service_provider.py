@@ -8,7 +8,7 @@ from pymobiledevice3.service_connection import ServiceConnection
 
 
 class LockdownServiceProvider:
-    def __init__(self):
+    def __init__(self) -> None:
         self.udid: Optional[str] = None
         self.product_type: Optional[str] = None
 

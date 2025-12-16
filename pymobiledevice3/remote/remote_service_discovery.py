@@ -10,6 +10,7 @@ from pymobiledevice3.exceptions import (
     InvalidServiceError,
     NoDeviceConnectedError,
     PyMobileDevice3Exception,
+    ServiceNotConnectedError,
     StartServiceError,
 )
 from pymobiledevice3.lockdown import LockdownClient, create_using_remote
@@ -36,9 +37,27 @@ class RemoteServiceDiscoveryService(LockdownServiceProvider):
         super().__init__()
         self.name = name
         self.service = RemoteXPCConnection(address)
-        self.peer_info: Optional[dict] = None
-        self.lockdown: Optional[LockdownClient] = None
-        self.all_values: Optional[dict] = None
+        self._peer_info: Optional[dict] = None
+        self._lockdown: Optional[LockdownClient] = None
+        self._all_values: Optional[dict] = None
+
+    @property
+    def peer_info(self) -> dict:
+        if self._peer_info is None:
+            raise ServiceNotConnectedError
+        return self._peer_info
+
+    @property
+    def lockdown(self) -> LockdownClient:
+        if self._lockdown is None:
+            raise ServiceNotConnectedError
+        return self._lockdown
+
+    @property
+    def all_values(self) -> dict:
+        if self._all_values is None:
+            raise ServiceNotConnectedError
+        return self._all_values
 
     @property
     def product_version(self) -> str:
@@ -66,18 +85,18 @@ class RemoteServiceDiscoveryService(LockdownServiceProvider):
     async def connect(self) -> None:
         await self.service.connect()
         try:
-            self.peer_info = await self.service.receive_response()
+            self._peer_info = await self.service.receive_response()
             self.udid = self.peer_info["Properties"]["UniqueDeviceID"]
             self.product_type = self.peer_info["Properties"]["ProductType"]
             try:
-                self.lockdown = create_using_remote(
+                self._lockdown = create_using_remote(
                     self.start_lockdown_service("com.apple.mobile.lockdown.remote.trusted")
                 )
             except InvalidServiceError:
-                self.lockdown = create_using_remote(
+                self._lockdown = create_using_remote(
                     self.start_lockdown_service("com.apple.mobile.lockdown.remote.untrusted")
                 )
-            self.all_values = self.lockdown.all_values
+            self._all_values = self.lockdown.all_values
         except Exception:
             await self.close()
             raise
@@ -91,11 +110,13 @@ class RemoteServiceDiscoveryService(LockdownServiceProvider):
     def start_lockdown_service(self, name: str, include_escrow_bag: bool = False) -> ServiceConnection:
         service = self.start_lockdown_service_without_checkin(name)
         try:
-            checkin = {"Label": "pymobiledevice3", "ProtocolVersion": "2", "Request": "RSDCheckin"}
+            checkin: dict = {"Label": "pymobiledevice3", "ProtocolVersion": "2", "Request": "RSDCheckin"}
             if include_escrow_bag:
+                assert self.udid is not None
                 pairing_record = get_local_pairing_record(
                     get_remote_pairing_record_filename(self.udid), get_home_folder()
                 )
+                assert pairing_record is not None
                 checkin["EscrowBag"] = base64.b64decode(pairing_record["remote_unlock_host_key"])
             response = service.send_recv_plist(checkin)
             if response["Request"] != "RSDCheckin":
@@ -118,7 +139,7 @@ class RemoteServiceDiscoveryService(LockdownServiceProvider):
         await service.aio_start()
         return service
 
-    def start_lockdown_developer_service(self, name, include_escrow_bag: bool = False) -> ServiceConnection:
+    def start_lockdown_developer_service(self, name: str, include_escrow_bag: bool = False) -> ServiceConnection:
         try:
             return self.start_lockdown_service_without_checkin(name)
         except StartServiceError:
@@ -154,7 +175,7 @@ class RemoteServiceDiscoveryService(LockdownServiceProvider):
         await self.connect()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:  # noqa: ANN001
         await self.close()
 
     def __repr__(self) -> str:
@@ -171,7 +192,7 @@ async def get_remoted_devices(timeout: float = DEFAULT_BONJOUR_TIMEOUT) -> list[
     result = []
     for instance in await browse_remoted(timeout):
         for address in instance.addresses:
-            with RemoteServiceDiscoveryService((address.full_ip, RSD_PORT)) as rsd:
+            async with RemoteServiceDiscoveryService((address.full_ip, RSD_PORT)) as rsd:
                 properties = rsd.peer_info["Properties"]
                 result.append(
                     RSDDevice(

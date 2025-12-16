@@ -76,8 +76,8 @@ class FileServiceService(CoreDeviceService):
         file_permissions: int = 0o644,
         uid: int = 501,
         gid: int = 501,
-        creation_time: int = time.time(),
-        last_modification_time: int = time.time(),
+        creation_time: float = time.time(),
+        last_modification_time: float = time.time(),
     ) -> None:
         """Request to write an empty file at given path."""
         await self.send_receive_request({

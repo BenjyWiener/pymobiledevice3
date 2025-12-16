@@ -6,7 +6,7 @@ from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscove
 class RestoreService(RemoteService):
     SERVICE_NAME = "com.apple.RestoreRemoteServices.restoreserviced"
 
-    def __init__(self, lockdown: RemoteServiceDiscoveryService):
+    def __init__(self, lockdown: RemoteServiceDiscoveryService) -> None:
         super().__init__(lockdown, self.SERVICE_NAME)
 
     async def delay_recovery_image(self) -> None:

@@ -12,7 +12,7 @@ class DvtTestmanagedProxyService(RemoteServer):
 
     # TODO: there is also service named 'com.apple.dt.testmanagerd.remote.automation', but not used
 
-    def __init__(self, lockdown: LockdownServiceProvider):
+    def __init__(self, lockdown: LockdownServiceProvider) -> None:
         if isinstance(lockdown, RemoteServiceDiscoveryService):  # only happends when >=17.0
             service_name = self.RSD_SERVICE_NAME
             remove_ssl_context = False

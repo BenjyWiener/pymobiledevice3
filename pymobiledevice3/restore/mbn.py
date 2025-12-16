@@ -10,9 +10,11 @@
 
 import io
 import logging
+from dataclasses import dataclass
 from typing import Optional
 
 from construct import Bytes, ChecksumError, Int16ul, Int32ul, Int64ul, Struct
+from construct_typed import DataclassMixin, csfield
 
 logger = logging.getLogger(__name__)
 
@@ -39,122 +41,130 @@ ELFCLASSNONE, ELFCLASS32, ELFCLASS64 = 0, 1, 2
 # Construct Structs (little-endian)
 # -----------------------------------------------------------------------------
 
+
 # MBN v1
-MBN_V1 = Struct(
-    "type" / Int32ul,
-    "unk_0x04" / Int32ul,
-    "unk_0x08" / Int32ul,
-    "unk_0x0c" / Int32ul,
-    "data_size" / Int32ul,  # total - sizeof(header)
-    "sig_offset" / Int32ul,  # real offset = enc_sig_offset & 0xFFFFFF00 (FYI)
-    "unk_0x18" / Int32ul,
-    "unk_0x1c" / Int32ul,
-    "unk_0x20" / Int32ul,
-    "unk_0x24" / Int32ul,
-)
+@dataclass
+class MBN_V1(DataclassMixin):
+    type: int = csfield(Int32ul)
+    unk_0x04: int = csfield(Int32ul)
+    unk_0x08: int = csfield(Int32ul)
+    unk_0x0c: int = csfield(Int32ul)
+    data_size: int = csfield(Int32ul)  # total - sizeof(header)
+    sig_offset: int = csfield(Int32ul)  # real offset = enc_sig_offset & 0xFFFFFF00 (FYI)
+    unk_0x18: int = csfield(Int32ul)
+    unk_0x1c: int = csfield(Int32ul)
+    unk_0x20: int = csfield(Int32ul)
+    unk_0x24: int = csfield(Int32ul)
+
 
 # MBN v2
-MBN_V2 = Struct(
-    "magic1" / Bytes(8),
-    "unk_0x08" / Int32ul,
-    "unk_0x0c" / Int32ul,  # 0xFFFFFFFF
-    "unk_0x10" / Int32ul,  # 0xFFFFFFFF
-    "header_size" / Int32ul,
-    "unk_0x18" / Int32ul,
-    "data_size" / Int32ul,  # total - sizeof(header)
-    "sig_offset" / Int32ul,
-    "unk_0x24" / Int32ul,
-    "unk_0x28" / Int32ul,
-    "unk_0x2c" / Int32ul,
-    "unk_0x30" / Int32ul,
-    "unk_0x34" / Int32ul,  # 0x1
-    "unk_0x38" / Int32ul,  # 0x1
-    "unk_0x3c" / Int32ul,  # 0xFFFFFFFF
-    "unk_0x40" / Int32ul,  # 0xFFFFFFFF
-    "unk_0x44" / Int32ul,  # 0xFFFFFFFF
-    "unk_0x48" / Int32ul,  # 0xFFFFFFFF
-    "unk_0x4c" / Int32ul,  # 0xFFFFFFFF
-)
+@dataclass
+class MBN_V2(DataclassMixin):
+    magic1: bytes = csfield(Bytes(8))
+    unk_0x08: int = csfield(Int32ul)
+    unk_0x0c: int = csfield(Int32ul)  # 0xFFFFFFFF
+    unk_0x10: int = csfield(Int32ul)  # 0xFFFFFFFF
+    header_size: int = csfield(Int32ul)
+    unk_0x18: int = csfield(Int32ul)
+    data_size: int = csfield(Int32ul)  # total - sizeof(header)
+    sig_offset: int = csfield(Int32ul)
+    unk_0x24: int = csfield(Int32ul)
+    unk_0x28: int = csfield(Int32ul)
+    unk_0x2c: int = csfield(Int32ul)
+    unk_0x30: int = csfield(Int32ul)
+    unk_0x34: int = csfield(Int32ul)  # 0x1
+    unk_0x38: int = csfield(Int32ul)  # 0x1
+    unk_0x3c: int = csfield(Int32ul)  # 0xFFFFFFFF
+    unk_0x40: int = csfield(Int32ul)  # 0xFFFFFFFF
+    unk_0x44: int = csfield(Int32ul)  # 0xFFFFFFFF
+    unk_0x48: int = csfield(Int32ul)  # 0xFFFFFFFF
+    unk_0x4c: int = csfield(Int32ul)  # 0xFFFFFFFF
+
 
 # MBN BIN
-MBN_BIN = Struct(
-    "magic" / Bytes(8),
-    "unk_0x08" / Int32ul,
-    "version" / Int32ul,
-    "total_size" / Int32ul,  # includes header
-    "unk_0x14" / Int32ul,
-)
+@dataclass
+class MBN_BIN(DataclassMixin):
+    magic: bytes = csfield(Bytes(8))
+    unk_0x08: int = csfield(Int32ul)
+    version: int = csfield(Int32ul)
+    total_size: int = csfield(Int32ul)  # includes header
+    unk_0x14: int = csfield(Int32ul)
+
 
 # v7 trailer header used by mbn_mav25_stitch
-MBN_V7 = Struct(
-    "reserved" / Int32ul,
-    "version" / Int32ul,
-    "common_metadata_size" / Int32ul,
-    "qti_metadata_size" / Int32ul,
-    "oem_metadata_size" / Int32ul,
-    "hash_table_size" / Int32ul,
-    "qti_signature_size" / Int32ul,
-    "qti_certificate_chain_size" / Int32ul,
-    "oem_signature_size" / Int32ul,
-    "oem_certificate_chain_size" / Int32ul,
-)
+@dataclass
+class MBN_V7(DataclassMixin):
+    reserved: int = csfield(Int32ul)
+    version: int = csfield(Int32ul)
+    common_metadata_size: int = csfield(Int32ul)
+    qti_metadata_size: int = csfield(Int32ul)
+    oem_metadata_size: int = csfield(Int32ul)
+    hash_table_size: int = csfield(Int32ul)
+    qti_signature_size: int = csfield(Int32ul)
+    qti_certificate_chain_size: int = csfield(Int32ul)
+    oem_signature_size: int = csfield(Int32ul)
+    oem_certificate_chain_size: int = csfield(Int32ul)
+
 
 # ELF (minimal fields we need)
-ELF32_Ehdr = Struct(
-    "e_ident" / Bytes(16),
-    "e_type" / Int16ul,
-    "e_machine" / Int16ul,
-    "e_version" / Int32ul,
-    "e_entry" / Int32ul,
-    "e_phoff" / Int32ul,
-    "e_shoff" / Int32ul,
-    "e_flags" / Int32ul,
-    "e_ehsize" / Int16ul,
-    "e_phentsize" / Int16ul,
-    "e_phnum" / Int16ul,
-    "e_shentsize" / Int16ul,
-    "e_shnum" / Int16ul,
-    "e_shstrndx" / Int16ul,
-)
+@dataclass
+class ELF32_Ehdr(DataclassMixin):
+    e_ident: bytes = csfield(Bytes(8))
+    e_type: int = csfield(Int16ul)
+    e_machine: int = csfield(Int16ul)
+    e_version: int = csfield(Int32ul)
+    e_entry: int = csfield(Int32ul)
+    e_phoff: int = csfield(Int32ul)
+    e_shoff: int = csfield(Int32ul)
+    e_flags: int = csfield(Int32ul)
+    e_ehsize: int = csfield(Int16ul)
+    e_phentsize: int = csfield(Int16ul)
+    e_phnum: int = csfield(Int16ul)
+    e_shentsize: int = csfield(Int16ul)
+    e_shnum: int = csfield(Int16ul)
+    e_shstrndx: int = csfield(Int16ul)
 
-ELF64_Ehdr = Struct(
-    "e_ident" / Bytes(16),
-    "e_type" / Int16ul,
-    "e_machine" / Int16ul,
-    "e_version" / Int32ul,
-    "e_entry" / Int64ul,
-    "e_phoff" / Int64ul,
-    "e_shoff" / Int64ul,
-    "e_flags" / Int32ul,
-    "e_ehsize" / Int16ul,
-    "e_phentsize" / Int16ul,
-    "e_phnum" / Int16ul,
-    "e_shentsize" / Int16ul,
-    "e_shnum" / Int16ul,
-    "e_shstrndx" / Int16ul,
-)
 
-ELF32_Phdr = Struct(
-    "p_type" / Int32ul,
-    "p_offset" / Int32ul,
-    "p_vaddr" / Int32ul,
-    "p_paddr" / Int32ul,
-    "p_filesz" / Int32ul,
-    "p_memsz" / Int32ul,
-    "p_flags" / Int32ul,
-    "p_align" / Int32ul,
-)
+@dataclass
+class ELF64_Ehdr(DataclassMixin):
+    e_ident: bytes = csfield(Bytes(8))
+    e_type: int = csfield(Int16ul)
+    e_machine: int = csfield(Int16ul)
+    e_version: int = csfield(Int32ul)
+    e_entry: int = csfield(Int64ul)
+    e_phoff: int = csfield(Int64ul)
+    e_shoff: int = csfield(Int64ul)
+    e_flags: int = csfield(Int32ul)
+    e_ehsize: int = csfield(Int16ul)
+    e_phentsize: int = csfield(Int16ul)
+    e_phnum: int = csfield(Int16ul)
+    e_shentsize: int = csfield(Int16ul)
+    e_shnum: int = csfield(Int16ul)
+    e_shstrndx: int = csfield(Int16ul)
 
-ELF64_Phdr = Struct(
-    "p_type" / Int32ul,
-    "p_flags" / Int32ul,
-    "p_offset" / Int64ul,
-    "p_vaddr" / Int64ul,
-    "p_paddr" / Int64ul,
-    "p_filesz" / Int64ul,
-    "p_memsz" / Int64ul,
-    "p_align" / Int64ul,
-)
+
+@dataclass
+class ELF32_Phdr(DataclassMixin):
+    p_type: int = csfield(Int32ul)
+    p_offset: int = csfield(Int32ul)
+    p_vaddr: int = csfield(Int32ul)
+    p_paddr: int = csfield(Int32ul)
+    p_filesz: int = csfield(Int32ul)
+    p_memsz: int = csfield(Int32ul)
+    p_flags: int = csfield(Int32ul)
+    p_align: int = csfield(Int32ul)
+
+
+@dataclass
+class ELF64_Phdr(DataclassMixin):
+    p_type: int = csfield(Int32ul)
+    p_flags: int = csfield(Int32ul)
+    p_offset: int = csfield(Int64ul)
+    p_vaddr: int = csfield(Int64ul)
+    p_paddr: int = csfield(Int64ul)
+    p_filesz: int = csfield(Int64ul)
+    p_memsz: int = csfield(Int64ul)
+    p_align: int = csfield(Int64ul)
 
 
 # -----------------------------------------------------------------------------

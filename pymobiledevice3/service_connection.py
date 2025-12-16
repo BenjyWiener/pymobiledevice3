@@ -6,8 +6,7 @@ import socket
 import ssl
 import struct
 import time
-import xml
-from enum import Enum
+import xml.parsers
 from typing import Any, Optional, Union
 
 import IPython
@@ -44,9 +43,9 @@ print(client.recvall(20))
 """
 
 
-def build_plist(d: dict, endianity: str = ">", fmt: Enum = plistlib.FMT_XML) -> bytes:
+def build_plist(d: Union[dict, list], endianity: str = ">", fmt: plistlib.PlistFormat = plistlib.FMT_XML) -> bytes:
     """
-    Convert a dictionary to a plist-formatted byte string prefixed with a length field.
+    Convert a dictionary or list to a plist-formatted byte string prefixed with a length field.
 
     :param d: The dictionary to convert.
     :param endianity: The byte order ('>' for big-endian, '<' for little-endian).
@@ -58,12 +57,12 @@ def build_plist(d: dict, endianity: str = ">", fmt: Enum = plistlib.FMT_XML) -> 
     return message + payload
 
 
-def parse_plist(payload: bytes) -> dict:
+def parse_plist(payload: bytes) -> Any:
     """
-    Parse a plist-formatted byte string into a dictionary.
+    Parse a plist-formatted byte string.
 
     :param payload: The plist-formatted byte string to parse.
-    :return: The parsed dictionary.
+    :return: The parsed object.
     :raises PyMobileDevice3Exception: If the payload is invalid.
     :retries with a filtered payload of only valid XML characters if plistlib compains about "not well-formed (invalid token)"
     """
@@ -82,22 +81,22 @@ def parse_plist(payload: bytes) -> dict:
 class ServiceConnection:
     """wrapper for tcp-relay connections"""
 
-    def __init__(self, sock: socket.socket, mux_device: MuxDevice = None):
+    def __init__(self, sock: socket.socket, mux_device: Optional[MuxDevice] = None) -> None:
         """
         Initialize a ServiceConnection object.
 
         :param sock: The socket to use for the connection.
         :param mux_device: The MuxDevice associated with the connection (optional).
         """
-        self.logger = logging.getLogger(__name__)
-        self.socket = sock
-        self._offset = 0
+        self.logger: logging.Logger = logging.getLogger(__name__)
+        self.socket: socket.socket = sock
+        self._offset: int = 0
 
         # usbmux connections contain additional information associated with the current connection
-        self.mux_device = mux_device
+        self.mux_device: Optional[MuxDevice] = mux_device
 
-        self.reader = None  # type: Optional[asyncio.StreamReader]
-        self.writer = None  # type: Optional[asyncio.StreamWriter]
+        self.reader: Optional[asyncio.StreamReader] = None
+        self.writer: Optional[asyncio.StreamWriter] = None
 
         # SSL/TLS version to be used for connecting to device
         # TLS v1.2 is supported since iOS 5
@@ -192,7 +191,9 @@ class ServiceConnection:
         except ssl.SSLEOFError as e:
             raise ConnectionTerminatedError from e
 
-    def send_recv_plist(self, data: Union[dict, list], endianity: str = ">", fmt: Enum = plistlib.FMT_XML) -> Any:
+    def send_recv_plist(
+        self, data: Union[dict, list], endianity: str = ">", fmt: plistlib.PlistFormat = plistlib.FMT_XML
+    ) -> Any:
         """
         Send a plist to the socket and receive a plist response.
 
@@ -204,7 +205,9 @@ class ServiceConnection:
         self.send_plist(data, endianity=endianity, fmt=fmt)
         return self.recv_plist(endianity=endianity)
 
-    async def aio_send_recv_plist(self, data: dict, endianity: str = ">", fmt: Enum = plistlib.FMT_XML) -> Any:
+    async def aio_send_recv_plist(
+        self, data: dict, endianity: str = ">", fmt: plistlib.PlistFormat = plistlib.FMT_XML
+    ) -> Any:
         """
         Asynchronously send a plist to the socket and receive a plist response.
 
@@ -257,6 +260,7 @@ class ServiceConnection:
         :param size: The amount of data to receive.
         :return: The received data.
         """
+        assert self.reader is not None
         return await self.reader.readexactly(size)
 
     async def aio_recv_prefixed(self, endianity: str = ">") -> bytes:
@@ -282,7 +286,7 @@ class ServiceConnection:
         msg = b"".join([hdr, data])
         return self.sendall(msg)
 
-    def recv_plist(self, endianity: str = ">") -> Union[dict, list]:
+    def recv_plist(self, endianity: str = ">") -> Any:
         """
         Receive a plist from the socket and parse it into a native type.
 
@@ -300,7 +304,9 @@ class ServiceConnection:
         """
         return parse_plist(await self.aio_recv_prefixed(endianity))
 
-    def send_plist(self, d: Union[dict, list], endianity: str = ">", fmt: Enum = plistlib.FMT_XML) -> None:
+    def send_plist(
+        self, d: Union[dict, list], endianity: str = ">", fmt: plistlib.PlistFormat = plistlib.FMT_XML
+    ) -> None:
         """
         Send a native type as a plist to the socket.
 
@@ -316,10 +322,13 @@ class ServiceConnection:
 
         :param payload: The data to send.
         """
+        assert self.writer is not None
         self.writer.write(payload)
         await self.writer.drain()
 
-    async def aio_send_plist(self, d: Union[dict, list], endianity: str = ">", fmt: Enum = plistlib.FMT_XML) -> None:
+    async def aio_send_plist(
+        self, d: Union[dict, list], endianity: str = ">", fmt: plistlib.PlistFormat = plistlib.FMT_XML
+    ) -> None:
         """
         Asynchronously send a dictionary as a plist to the socket.
 

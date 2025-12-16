@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 from typing import Optional
 
 from pymobiledevice3.exceptions import PyMobileDevice3Exception

@@ -2,7 +2,7 @@ import asyncio
 import contextlib
 import sys
 from asyncio import IncompleteReadError
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterator
 from typing import Optional
 
 import IPython
@@ -22,10 +22,13 @@ from traitlets.config import Config
 
 from pymobiledevice3.exceptions import ProtocolError, StreamClosedError
 from pymobiledevice3.remote.xpc_message import (
+    XpcDictionary,
     XpcFlags,
     XpcInt64Type,
+    XpcMessage,
     XpcUInt64Type,
     XpcWrapper,
+    XpcWrapperStruct,
     create_xpc_wrapper,
     decode_xpc_object,
 )
@@ -52,7 +55,7 @@ resp = await client.send_receive_request({"Command": "DoSomething"})
 
 
 class RemoteXPCConnection:
-    def __init__(self, address: tuple[str, int]):
+    def __init__(self, address: tuple[str, int]) -> None:
         self._previous_frame_data = b""
         self.address = address
         self.next_message_id: dict[int, int] = {ROOT_CHANNEL: 0, REPLY_CHANNEL: 0}
@@ -64,7 +67,7 @@ class RemoteXPCConnection:
         await self.connect()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:  # noqa: ANN001
         await self.close()
 
     async def connect(self) -> None:
@@ -85,13 +88,14 @@ class RemoteXPCConnection:
         self._reader = None
 
     async def send_request(self, data: dict, wanting_reply: bool = False) -> None:
+        assert self._writer is not None
         xpc_wrapper = create_xpc_wrapper(
             data, message_id=self.next_message_id[ROOT_CHANNEL], wanting_reply=wanting_reply
         )
         self._writer.write(DataFrame(stream_id=ROOT_CHANNEL, data=xpc_wrapper).serialize())
         await self._writer.drain()
 
-    async def iter_file_chunks(self, total_size: int, file_idx: int = 0) -> AsyncIterable[bytes]:
+    async def iter_file_chunks(self, total_size: int, file_idx: int = 0) -> AsyncIterator[bytes]:
         stream_id = (file_idx + 1) * 2
         await self._open_channel(stream_id, XpcFlags.FILE_TX_STREAM_RESPONSE)
         size = 0
@@ -102,7 +106,7 @@ class RemoteXPCConnection:
                 continue
 
             if frame.stream_id != stream_id:
-                xpc_wrapper = XpcWrapper.parse(frame.data)
+                xpc_wrapper = XpcWrapperStruct.parse(frame.data)
                 if xpc_wrapper.flags.FILE_TX_STREAM_REQUEST:
                     continue
 
@@ -120,14 +124,14 @@ class RemoteXPCConnection:
         while True:
             frame = await self._receive_next_data_frame()
             try:
-                xpc_message = XpcWrapper.parse(self._previous_frame_data + frame.data).message
+                xpc_message = XpcWrapperStruct.parse(self._previous_frame_data + frame.data).message
                 self._previous_frame_data = b""
             except StreamError:
                 self._previous_frame_data += frame.data
                 continue
             if xpc_message.payload is None:
                 continue
-            if xpc_message.payload.obj.data.entries is None:
+            if isinstance(xpc_message.payload.obj.data, XpcDictionary) and xpc_message.payload.obj.data.entries is None:
                 continue
             self.next_message_id[frame.stream_id] = xpc_message.message_id + 1
             return decode_xpc_object(xpc_message.payload.obj)
@@ -152,6 +156,7 @@ class RemoteXPCConnection:
         )
 
     async def _do_handshake(self) -> None:
+        assert self._writer is not None
         self._writer.write(HTTP2_MAGIC)
         await self._writer.drain()
 
@@ -170,7 +175,15 @@ class RemoteXPCConnection:
         # send first actual requests
         await self.send_request({})
         await self._send_frame(
-            DataFrame(stream_id=ROOT_CHANNEL, data=XpcWrapper.build({"size": 0, "flags": 0x0201, "payload": None}))
+            DataFrame(
+                stream_id=ROOT_CHANNEL,
+                data=XpcWrapperStruct.build(
+                    XpcWrapper(
+                        flags=XpcFlags(0x0201),
+                        message=XpcMessage(payload=None),
+                    )
+                ),
+            )
         )
         self.next_message_id[ROOT_CHANNEL] += 1
         await self._open_channel(REPLY_CHANNEL, XpcFlags.INIT_HANDSHAKE)
@@ -186,10 +199,19 @@ class RemoteXPCConnection:
         flags |= XpcFlags.ALWAYS_SET
         await self._send_frame(HeadersFrame(stream_id=stream_id, flags=["END_HEADERS"]))
         await self._send_frame(
-            DataFrame(stream_id=stream_id, data=XpcWrapper.build({"size": 0, "flags": flags, "payload": None}))
+            DataFrame(
+                stream_id=ROOT_CHANNEL,
+                data=XpcWrapperStruct.build(
+                    XpcWrapper(
+                        flags=XpcFlags(flags),
+                        message=XpcMessage(payload=None),
+                    )
+                ),
+            )
         )
 
     async def _send_frame(self, frame: Frame) -> None:
+        assert self._writer is not None
         self._writer.write(frame.serialize())
         await self._writer.drain()
 
@@ -211,12 +233,14 @@ class RemoteXPCConnection:
             return frame
 
     async def _receive_frame(self) -> Frame:
+        assert self._reader is not None
         buf = await self._reader.readexactly(FRAME_HEADER_SIZE)
         frame, additional_size = Frame.parse_frame_header(memoryview(buf))
         frame.parse_body(memoryview(await self._recvall(additional_size)))
         return frame
 
     async def _recvall(self, size: int) -> bytes:
+        assert self._reader is not None
         data = b""
         while len(data) < size:
             try:

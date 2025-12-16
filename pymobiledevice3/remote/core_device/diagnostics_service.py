@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncIterator
 
 from pymobiledevice3.remote.core_device.core_device_service import CoreDeviceService
 from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
@@ -9,7 +9,7 @@ from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscove
 class SysDiagnoseResponse:
     preferred_filename: str
     file_size: int
-    generator: AsyncGenerator[bytes, None]
+    generator: AsyncIterator[bytes]
 
 
 class DiagnosticsServiceService(CoreDeviceService):
@@ -19,7 +19,7 @@ class DiagnosticsServiceService(CoreDeviceService):
 
     SERVICE_NAME = "com.apple.coredevice.diagnosticsservice"
 
-    def __init__(self, rsd: RemoteServiceDiscoveryService):
+    def __init__(self, rsd: RemoteServiceDiscoveryService) -> None:
         super().__init__(rsd, self.SERVICE_NAME)
 
     async def capture_sysdiagnose(self, is_dry_run: bool) -> SysDiagnoseResponse:

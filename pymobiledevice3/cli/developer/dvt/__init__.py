@@ -93,9 +93,12 @@ def send_signal(
     """Send a signal to a PID (choose numeric SIG or --signal-name)."""
     if not sig and not signal_name:
         raise MissingParameter(param_type="argument|option", param_hint="'SIG|SIGNAL-NAME'")
-    if sig and signal_name:
+    if sig is not None and signal_name is not None:
         raise UsageError(message="Cannot give SIG and SIGNAL-NAME together")
     sig = sig or signal_name.value
+    # if signal_name is not None:
+    #     sig = signal_name.value
+
     with DvtSecureSocketProxyService(lockdown=service_provider) as dvt:
         ProcessControl(dvt).signal(pid, sig)
 

@@ -5,6 +5,7 @@ import socket
 import struct
 import threading
 from enum import Enum
+from typing import Any, Optional
 
 from pymobiledevice3 import usbmux
 from pymobiledevice3.exceptions import ConnectionFailedError, NoDeviceConnectedError, PyMobileDevice3Exception
@@ -20,7 +21,7 @@ FDR_PROXY_MSG = 0x105
 FDR_PLIST_MSG = 0xBBAA
 CHUNK_SIZE = 1048576
 
-conn_port = None
+conn_port: Optional[int] = None
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class FDRClient:
 
     ctrlprotoversion = 2
 
-    def __init__(self, type_: fdr_type, udid=None):
+    def __init__(self, type_: fdr_type, udid: Optional[str] = None) -> None:
         device = usbmux.select_device(udid)
         if device is None:
             if udid:
@@ -45,24 +46,26 @@ class FDRClient:
 
         logger.debug("connecting to FDR")
 
+        self.service: ServiceConnection
         if type_ == fdr_type.FDR_CTRL:
             self.service = ServiceConnection.create_using_usbmux(
                 device.serial, self.SERVICE_PORT, connection_type="USB"
             )
             self.ctrl_handshake()
         else:
+            assert conn_port is not None, "conn_port has not yet been initialized"
             self.service = ServiceConnection.create_using_usbmux(device.serial, conn_port, connection_type="USB")
             self.sync_handshake()
 
         logger.debug("FDR connected")
 
-    def recv_plist(self):
+    def recv_plist(self) -> Any:
         return self.service.recv_plist(endianity="<")
 
-    def send_recv_plist(self, plist):
+    def send_recv_plist(self, plist: dict) -> Any:
         return self.service.send_recv_plist(plist, endianity="<", fmt=plistlib.FMT_BINARY)
 
-    def ctrl_handshake(self):
+    def ctrl_handshake(self) -> None:
         global conn_port
 
         logger.debug("About to do ctrl handshake")
@@ -81,7 +84,7 @@ class FDRClient:
 
         logger.debug(f"Ctrl handshake done (ConnPort = {conn_port})")
 
-    def sync_handshake(self):
+    def sync_handshake(self) -> None:
         self.service.sendall(HELLOCMD)
 
         if self.ctrlprotoversion != 2:
@@ -97,14 +100,14 @@ class FDRClient:
         if identifier:
             logger.debug(f"got device identifier: {identifier}")
 
-    def handle_sync_cmd(self):
+    def handle_sync_cmd(self) -> None:
         self.service.recvall(2)
 
         # Open a new connection and wait for messages on it
         logger.debug("FDR connected in reply to sync message, starting command thread")
         start_fdr_thread(fdr_type.FDR_CONN)
 
-    def handle_proxy_cmd(self):
+    def handle_proxy_cmd(self) -> None:
         buf = self.service.recv(1048576)
         logger.debug(f"got proxy command with {len(buf)} bytes")
 
@@ -166,7 +169,7 @@ class FDRClient:
         sockfd.close()
         self.service.close()
 
-    def handle_plist_cmd(self):
+    def handle_plist_cmd(self) -> None:
         d = self.recv_plist()
         command = d["Command"]
 
@@ -175,7 +178,7 @@ class FDRClient:
         else:
             logger.warning(f"FDR {self} received unknown plist command: {command}")
 
-    def poll_and_handle_message(self):
+    def poll_and_handle_message(self) -> None:
         # TODO: is it okay?
         cmd = struct.unpack("<H", self.service.recvall(2))[0]
 
@@ -191,7 +194,7 @@ class FDRClient:
             logger.warning(f"ignoring FDR message: {cmd}")
 
 
-def fdr_listener_thread(type_: fdr_type):
+def fdr_listener_thread(type_: fdr_type) -> None:
     client = None
     try:
         client = FDRClient(type_)
@@ -206,7 +209,7 @@ def fdr_listener_thread(type_: fdr_type):
     logger.debug(f"FDR {client} terminating...")
 
 
-def start_fdr_thread(type_: fdr_type):
+def start_fdr_thread(type_: fdr_type) -> threading.Thread:
     thread = threading.Thread(target=fdr_listener_thread, args=(type_,))
     thread.start()
     return thread

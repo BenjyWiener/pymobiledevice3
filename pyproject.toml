@@ -74,6 +74,8 @@ fix = true
 select = [
     # flake8-2020
     "YTT",
+    # flake8-annotations
+    "ANN",
     # flake8-bugbear
     "B",
     # flake8-builtins
@@ -101,19 +103,30 @@ select = [
     "TRY",
 ]
 ignore = [
-    # Shadowing a built-in
+    # Variable shadowing a built-in
     "A001",
+    # Argument shadowing a built-in
+    "A002",
+    # Allow `Any` return type
+    "ANN401",
     # LineTooLong
     "E501",
+    # Do not perform function call `csfield` in dataclass defaults
+    "RUF009",
     # Custom error classes
     "TRY003",
     # Use `logging.exception` instead of `logging.error`
     "TRY400",
     # Abstract `raise` to an inner function
     "TRY301",
-    # Do not perform function call `csfield` in dataclass defaults
-    "RUF009",
 ]
 
 [tool.ruff.format]
 preview = true
+
+[tool.ruff.lint.isort]
+extra-standard-library = ["typing_extensions"]
+
+[tool.pyright]
+pythonVersion = "3.9"
+useLibraryCodeForTypes = false

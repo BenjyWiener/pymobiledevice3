@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional, cast
 
 from pymobiledevice3.exceptions import ConnectionFailedError, DeprecationError, PyMobileDevice3Exception
 from pymobiledevice3.lockdown import LockdownClient
@@ -957,7 +957,7 @@ class DiagnosticsService(LockdownService):
     SERVICE_NAME = "com.apple.mobile.diagnostics_relay"
     OLD_SERVICE_NAME = "com.apple.iosdiagnostics.relay"
 
-    def __init__(self, lockdown: LockdownServiceProvider):
+    def __init__(self, lockdown: LockdownServiceProvider) -> None:
         if isinstance(lockdown, LockdownClient):
             try:
                 service = lockdown.start_lockdown_service(self.SERVICE_NAME)
@@ -993,19 +993,19 @@ class DiagnosticsService(LockdownService):
             raise PyMobileDevice3Exception(f"failed to perform action: {action}")
         return response.get("Diagnostics")
 
-    def restart(self):
+    def restart(self) -> None:
         self.action("Restart")
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         self.action("Shutdown")
 
-    def sleep(self):
+    def sleep(self) -> None:
         self.action("Sleep")
 
     def info(self, diag_type: str = "All") -> dict:
-        return self.action(diag_type)
+        return cast(dict, self.action(diag_type))
 
-    def ioregistry(self, plane: Optional[str] = None, name: Optional[str] = None, ioclass: Optional[str] = None):
+    def ioregistry(self, plane: Optional[str] = None, name: Optional[str] = None, ioclass: Optional[str] = None) -> Any:
         d = {}
 
         if plane:

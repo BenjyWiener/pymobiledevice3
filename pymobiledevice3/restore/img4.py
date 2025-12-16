@@ -3,6 +3,8 @@ import logging
 from ipsw_parser.build_identity import BuildIdentity
 from pyimg4 import IM4P, IM4R, IMG4, RestoreProperty
 
+from pymobiledevice3.restore.tss import TSSResponse
+
 logger = logging.getLogger(__name__)
 
 COMPONENT_FOURCC = {
@@ -123,7 +125,7 @@ COMPONENT_FOURCC = {
 
 
 def stitch_component(
-    name: str, im4p_data: bytes, tss: dict, build_identity: BuildIdentity, ap_parameters: dict
+    name: str, im4p_data: bytes, tss: TSSResponse, build_identity: BuildIdentity, ap_parameters: dict
 ) -> bytes:
     logger.info(f"Personalizing IMG4 component {name}...")
 
@@ -155,9 +157,9 @@ def stitch_component(
                 logger.debug(f"anid: {anid}")
                 im4r.add_property(RestoreProperty(fourcc="anid", value=anid))
 
-    if tbm_dict is not None:
-        for key in tbm_dict:
-            logger.debug(f"{name}: Adding property {key}")
-            im4r.add_property(RestoreProperty(fourcc=key, value=tbm_dict[key]))
+        if tbm_dict is not None:
+            for key in tbm_dict:
+                logger.debug(f"{name}: Adding property {key}")
+                im4r.add_property(RestoreProperty(fourcc=key, value=tbm_dict[key]))
 
     return IMG4(im4p=im4p, im4m=tss.ap_img4_ticket, im4r=im4r).output()

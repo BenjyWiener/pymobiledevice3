@@ -8,7 +8,7 @@ from pymobiledevice3.services.lockdown_service import LockdownService
 class DtSimulateLocation(LockdownService, LocationSimulationBase):
     SERVICE_NAME = "com.apple.dt.simulatelocation"
 
-    def __init__(self, lockdown: LockdownClient):
+    def __init__(self, lockdown: LockdownClient) -> None:
         LockdownService.__init__(self, lockdown, self.SERVICE_NAME)
         LocationSimulationBase.__init__(self)
 
@@ -21,7 +21,7 @@ class DtSimulateLocation(LockdownService, LocationSimulationBase):
         """stop simulation"""
         service = self.lockdown.start_lockdown_developer_service(self.SERVICE_NAME)
         service.sendall(struct.pack(">I", 0))
-        latitude = str(latitude).encode()
-        longitude = str(longitude).encode()
-        service.sendall(struct.pack(">I", len(latitude)) + latitude)
-        service.sendall(struct.pack(">I", len(longitude)) + longitude)
+        latitude_str = str(latitude).encode()
+        longitude_str = str(longitude).encode()
+        service.sendall(struct.pack(">I", len(latitude_str)) + latitude_str)
+        service.sendall(struct.pack(">I", len(longitude_str)) + longitude_str)

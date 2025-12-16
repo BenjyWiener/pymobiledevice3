@@ -8,9 +8,9 @@ import traceback
 import warnings
 from contextlib import asynccontextmanager, suppress
 from ssl import SSLEOFError
-from typing import Optional, Union
+from typing import Optional, Union, cast
 
-import construct
+import construct.core
 
 from pymobiledevice3.bonjour import browse_remoted
 
@@ -169,6 +169,7 @@ class TunneldCore:
                             # skip tunnel if already exists for this udid
                             await service.close()
                             continue
+                        assert service.hostname is not None
                         self.tunnel_tasks[service.hostname] = TunnelTask(
                             task=asyncio.create_task(
                                 self.start_tunnel_task(service.hostname, service),
@@ -182,7 +183,7 @@ class TunneldCore:
                     # Raise and cancel gracefully
                     raise
                 except Exception:
-                    logger.exception(f"Got exception from {asyncio.current_task().get_name()}")
+                    logger.exception(f"Got exception from {cast(asyncio.Task, asyncio.current_task()).get_name()}")
                     continue
                 await asyncio.sleep(REMOTEPAIRING_INTERVAL)
         except asyncio.CancelledError:
@@ -243,6 +244,7 @@ class TunneldCore:
                 async for ip, lockdown in get_mobdev2_lockdowns(only_paired=True):
                     with lockdown:
                         udid = lockdown.udid
+                        assert udid is not None
                         task_identifier = f"mobdev2-{udid}-{ip}"
                         if self.tunnel_exists_for_udid(udid):
                             # Skip tunnel if already exists for this udid
@@ -293,12 +295,14 @@ class TunneldCore:
                         queue.put_nowait(tun)
                         # avoid sending another message if succeeded
                         queue = None
-                    logger.info(f"[{asyncio.current_task().get_name()}] Created tunnel --rsd {tun.address} {tun.port}")
+                    logger.info(
+                        f"[{cast(asyncio.Task, asyncio.current_task()).get_name()}] Created tunnel --rsd {tun.address} {tun.port}"
+                    )
                     await tun.client.wait_closed()
                 else:
                     bailed_out = True
                     logger.debug(
-                        f"[{asyncio.current_task().get_name()}] Not establishing tunnel since there is already an "
+                        f"[{cast(asyncio.Task, asyncio.current_task()).get_name()}] Not establishing tunnel since there is already an "
                         f"active one for same udid"
                     )
         except asyncio.CancelledError:
@@ -312,11 +316,11 @@ class TunneldCore:
             InvalidServiceError,
         ) as e:
             if tun is None:
-                logger.debug(f"Got {e.__class__.__name__} from {asyncio.current_task().get_name()}")
+                logger.debug(f"Got {e.__class__.__name__} from {cast(asyncio.Task, asyncio.current_task()).get_name()}")
             else:
                 logger.debug(f"Got {e.__class__.__name__} from tunnel --rsd {tun.address} {tun.port}")
         except Exception:
-            logger.exception(f"Got exception from {asyncio.current_task().get_name()}")
+            logger.exception(f"Got exception from {cast(asyncio.Task, asyncio.current_task()).get_name()}")
         finally:
             if queue is not None:
                 # notify something went wrong
@@ -371,9 +375,11 @@ class TunneldCore:
         except PairingError:
             logger.exception(f"Failed to pair with {ip}")
         except RuntimeError:
-            logger.debug(f"Got RuntimeError from: {asyncio.current_task().get_name()}")
+            logger.debug(f"Got RuntimeError from: {cast(asyncio.Task, asyncio.current_task()).get_name()}")
         except Exception:
-            logger.exception(f"Error raised from: {asyncio.current_task().get_name()}: {traceback.format_exc()}")
+            logger.exception(
+                f"Error raised from: {cast(asyncio.Task, asyncio.current_task()).get_name()}: {traceback.format_exc()}"
+            )
         finally:
             if rsd is not None:
                 with suppress(OSError):
@@ -568,6 +574,7 @@ class TunneldRunner:
                         if ip is not None and remotepairing_ip != ip:
                             await remotepairing.close()
                             continue
+                        assert remotepairing_ip is not None
                         task = asyncio.create_task(
                             self._tunneld_core.start_tunnel_task(remotepairing_ip, remotepairing, queue=queue),
                             name=f"start-tunnel-wifi-{remotepairing_ip}",

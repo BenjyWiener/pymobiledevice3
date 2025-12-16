@@ -1,9 +1,10 @@
 import logging
 import struct
-import typing
+from typing import BinaryIO
 
 from pymobiledevice3.exceptions import PyMobileDevice3Exception
 from pymobiledevice3.lockdown import LockdownClient
+from pymobiledevice3.service_connection import ServiceConnection
 
 
 class DtFetchSymbols:
@@ -12,9 +13,9 @@ class DtFetchSymbols:
     CMD_LIST_FILES_PLIST = struct.pack(">I", 0x30303030)
     CMD_GET_FILE = struct.pack(">I", 1)
 
-    def __init__(self, lockdown: LockdownClient):
-        self.logger = logging.getLogger(__name__)
-        self.lockdown = lockdown
+    def __init__(self, lockdown: LockdownClient) -> None:
+        self.logger: logging.Logger = logging.getLogger(__name__)
+        self.lockdown: LockdownClient = lockdown
 
     def list_files(self) -> list[str]:
         service = self._start_command(self.CMD_LIST_FILES_PLIST)
@@ -22,7 +23,7 @@ class DtFetchSymbols:
         service.close()
         return files
 
-    def get_file(self, fileno: int, stream: typing.IO):
+    def get_file(self, fileno: int, stream: BinaryIO) -> None:
         service = self._start_command(self.CMD_GET_FILE)
         service.sendall(struct.pack(">I", fileno))
 
@@ -36,7 +37,7 @@ class DtFetchSymbols:
             received += len(buf)
         service.close()
 
-    def _start_command(self, cmd: bytes):
+    def _start_command(self, cmd: bytes) -> ServiceConnection:
         service = self.lockdown.start_lockdown_developer_service(self.SERVICE_NAME)
         service.sendall(cmd)
 

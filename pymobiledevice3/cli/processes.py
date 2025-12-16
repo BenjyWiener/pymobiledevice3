@@ -24,7 +24,7 @@ def processes_ps(service_provider: ServiceProviderDep) -> None:
 @cli.command("pgrep")
 def processes_pgrep(service_provider: ServiceProviderDep, expression: str) -> None:
     """try to match processes pid by given expression (like pgrep)"""
-    processes_list = OsTraceService(lockdown=service_provider).get_pid_list().get("Payload")
+    processes_list = OsTraceService(lockdown=service_provider).get_pid_list()["Payload"]
     for pid, process_info in processes_list.items():
         process_name = process_info.get("ProcessName")
         if expression in process_name:

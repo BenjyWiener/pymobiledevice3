@@ -1,19 +1,19 @@
-#!/usr/bin/env python3
-
 import enum
 import time
-from collections.abc import Generator
-from typing import Optional
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
+from typing import BinaryIO, Optional
 
 import pcapng.blocks as blocks
-from construct import Byte, Bytes, Container, CString, Int16ub, Int32ub, Int32ul, Padded, Seek, Struct, this
+from construct import Byte, Bytes, CString, Int16ub, Int32ub, Int32ul, Padded, Seek, this
+from construct_typed import DataclassMixin, DataclassStruct, csfield
 from pcapng import FileWriter
 
 from pymobiledevice3.lockdown import LockdownClient
 from pymobiledevice3.lockdown_service_provider import LockdownServiceProvider
 from pymobiledevice3.services.lockdown_service import LockdownService
 
-INTERFACE_NAMES = enum.Enum(
+INTERFACE_NAMES = enum.IntEnum(
     "InterfaceNames",
     names={
         "other": 1,
@@ -301,27 +301,31 @@ LINKTYPE_RAW = 101
 
 ETHERNET_HEADER = b"\xbe\xef" * 6 + b"\x08\x00"
 
-device_packet_struct = Struct(
-    "header_length" / Int32ub,
-    "header_version" / Byte,
-    "packet_length" / Int32ub,
-    "interface_type" / Byte,
-    "unit" / Int16ub,
-    "io" / Byte,
-    "protocol_family" / Int32ub,
-    "frame_pre_length" / Int32ub,
-    "frame_post_length" / Int32ub,
-    "interface_name" / Padded(16, CString("utf8")),
-    "pid" / Int32ul,
-    "comm" / Padded(17, CString("utf8")),
-    "svc" / Int32ub,
-    "epid" / Int32ul,
-    "ecomm" / Padded(17, CString("utf8")),
-    "seconds" / Int32ub,
-    "microseconds" / Int32ub,
-    Seek(this.header_length),
-    "data" / Bytes(this.packet_length),
-)
+
+@dataclass
+class DevicePacket(DataclassMixin):
+    header_length: int = csfield(Int32ub)
+    header_version: int = csfield(Byte)
+    packet_length: int = csfield(Int32ub)
+    interface_type: int = csfield(Byte)
+    unit: int = csfield(Int16ub)
+    io: int = csfield(Byte)
+    protocol_family: int = csfield(Int32ub)
+    frame_pre_length: int = csfield(Int32ub)
+    frame_post_length: int = csfield(Int32ub)
+    interface_name: str = csfield(Padded(16, CString("utf8")))
+    pid: int = csfield(Int32ul)
+    comm: str = csfield(Padded(17, CString("utf8")))
+    svc: int = csfield(Int32ub)
+    epid: int = csfield(Int32ul)
+    ecomm: str = csfield(Padded(17, CString("utf8")))
+    seconds: int = csfield(Int32ub)
+    microseconds: int = csfield(Int32ub)
+    _: int = csfield(Seek(this.header_length))
+    data: bytes = csfield(Bytes(this.packet_length))
+
+
+device_packet_struct = DataclassStruct(DevicePacket)
 
 
 class CrossPlatformAddressFamily(enum.IntEnum):
@@ -340,7 +344,7 @@ class PcapdService(LockdownService):
     RSD_SERVICE_NAME = "com.apple.pcapd.shim.remote"
     SERVICE_NAME = "com.apple.pcapd"
 
-    def __init__(self, lockdown: LockdownServiceProvider):
+    def __init__(self, lockdown: LockdownServiceProvider) -> None:
         if isinstance(lockdown, LockdownClient):
             super().__init__(lockdown, self.SERVICE_NAME)
         else:
@@ -348,7 +352,7 @@ class PcapdService(LockdownService):
 
     def watch(
         self, packets_count: int = -1, process: Optional[str] = None, interface_name: Optional[str] = None
-    ) -> Generator[Container, None, None]:
+    ) -> Iterator[DevicePacket]:
         packet_index = 0
         while packet_index != packets_count:
             d = self.service.recv_plist()
@@ -376,7 +380,7 @@ class PcapdService(LockdownService):
 
             packet_index += 1
 
-    def write_to_pcap(self, out, packet_generator) -> None:
+    def write_to_pcap(self, out: BinaryIO, packet_generator: Iterable[DevicePacket]) -> None:
         shb = blocks.SectionHeader(
             options={
                 "shb_hardware": "artificial",
@@ -392,7 +396,7 @@ class PcapdService(LockdownService):
         writer = FileWriter(out, shb)
 
         for packet in packet_generator:
-            packet_time = packet.timestamp if hasattr(packet, "timestamp") else time.time()
+            packet_time = getattr(packet, "timestamp", time.time())
 
             timestamp_microseconds = int(packet_time * 1_000_000)
             timestamp_high = (timestamp_microseconds >> 32) & 0xFFFFFFFF

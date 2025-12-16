@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import dataclasses
 import plistlib
 import struct
@@ -8,6 +7,7 @@ from datetime import datetime
 from enum import IntEnum
 from pathlib import Path
 from tarfile import TarFile
+from typing import Optional, Union
 
 from pymobiledevice3.exceptions import PyMobileDevice3Exception
 from pymobiledevice3.lockdown import LockdownClient
@@ -33,8 +33,8 @@ class SyslogLogLevel(IntEnum):
 
 @dataclasses.dataclass
 class SyslogLabel:
-    category: str
-    subsystem: str
+    category: Union[str, bytes]
+    subsystem: Union[str, bytes]
 
 
 @dataclasses.dataclass
@@ -42,10 +42,10 @@ class SyslogEntry:
     pid: int
     timestamp: datetime
     level: SyslogLogLevel
-    image_name: str
+    image_name: Union[str, bytes]
     image_offset: int
-    filename: str
-    message: str
+    filename: Union[str, bytes]
+    message: Union[str, bytes]
     label: typing.Optional[SyslogLabel] = None
 
 
@@ -158,13 +158,13 @@ class OsTraceService(LockdownService):
     SERVICE_NAME = "com.apple.os_trace_relay"
     RSD_SERVICE_NAME = "com.apple.os_trace_relay.shim.remote"
 
-    def __init__(self, lockdown: LockdownServiceProvider):
+    def __init__(self, lockdown: LockdownServiceProvider) -> None:
         if isinstance(lockdown, LockdownClient):
             super().__init__(lockdown, self.SERVICE_NAME)
         else:
             super().__init__(lockdown, self.RSD_SERVICE_NAME)
 
-    def get_pid_list(self):
+    def get_pid_list(self) -> dict:
         self.service.send_plist({"Request": "PidList"})
 
         # ignore first received unknown byte
@@ -179,8 +179,8 @@ class OsTraceService(LockdownService):
         size_limit: typing.Optional[int] = None,
         age_limit: typing.Optional[int] = None,
         start_time: typing.Optional[int] = None,
-    ):
-        request = {"Request": "CreateArchive"}
+    ) -> None:
+        request: dict[str, Union[str, Optional[int]]] = {"Request": "CreateArchive"}
 
         if size_limit is not None:
             request.update({"SizeLimit": size_limit})
@@ -225,7 +225,7 @@ class OsTraceService(LockdownService):
                 self.create_archive(f, size_limit=size_limit, age_limit=age_limit, start_time=start_time)
             TarFile(file).extractall(out)
 
-    def syslog(self, pid=-1) -> typing.Generator[SyslogEntry, None, None]:
+    def syslog(self, pid: int = -1) -> typing.Generator[SyslogEntry, None, None]:
         self.service.send_plist({"Request": "StartActivity", "MessageFilter": 65535, "Pid": pid, "StreamFlags": 60})
 
         (length_length,) = struct.unpack("<I", self.service.recvall(4))

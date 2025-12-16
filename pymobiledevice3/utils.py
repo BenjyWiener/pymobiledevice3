@@ -1,48 +1,54 @@
 import asyncio
 import traceback
+from collections.abc import Coroutine
 from functools import wraps
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, Optional, TypeVar, Union
+from typing_extensions import ParamSpec
 
 import requests
-from construct import Int8ul, Int16ul, Int32ul, Int64ul, Select
 from tqdm import tqdm
 
 
-def plist_access_path(d, path: tuple, type_=None, required=False):
+def plist_access_path(d: dict, path: tuple, type_: Optional[type] = None, required: bool = False) -> Any:
+    curr_val: Any = d
     for component in path:
-        d = d.get(component)
-        if d is None:
+        curr_val = curr_val.get(component)
+        if curr_val is None:
             break
 
-    if type_ is bool and isinstance(d, str):
-        if d.lower() not in ("true", "false"):
+    if type_ is bool and isinstance(curr_val, str):
+        if curr_val.lower() not in ("true", "false"):
             raise ValueError()
-        d = d.lower() == "true"
-    elif type_ is not None and not isinstance(d, type_):
+        curr_val = curr_val.lower() == "true"
+    elif type_ is not None and not isinstance(curr_val, type_):
         # wrong type
-        d = None
+        curr_val = None
 
-    if d is None and required:
+    if curr_val is None and required:
         raise KeyError(f"path: {path} doesn't exist in given plist object")
 
-    return d
+    return curr_val
 
 
-def bytes_to_uint(b: bytes):
-    return Select(u64=Int64ul, u32=Int32ul, u16=Int16ul, u8=Int8ul).parse(b)
+def bytes_to_uint(b: bytes) -> int:
+    return int.from_bytes(b, "little")
 
 
-def try_decode(s: bytes):
+def try_decode(s: bytes) -> Union[str, bytes]:
     try:
         return s.decode("utf8")
     except UnicodeDecodeError:
         return s
 
 
-def asyncio_print_traceback(f: Callable):
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
+
+
+def asyncio_print_traceback(f: Callable[_P, Coroutine[None, None, _T]]) -> Callable[_P, Coroutine[None, None, _T]]:
     @wraps(f)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _T:
         try:
             return await f(*args, **kwargs)
         except (Exception, RuntimeError) as e:
@@ -65,7 +71,7 @@ def get_asyncio_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
-def file_download(url: str, outfile: Path, chunk_size=1024) -> None:
+def file_download(url: str, outfile: Path, chunk_size: int = 1024) -> None:
     resp = requests.get(url, stream=True)
     total = int(resp.headers.get("content-length", 0))
     with (
