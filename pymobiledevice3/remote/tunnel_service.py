@@ -14,15 +14,16 @@ import sys
 from abc import ABC, abstractmethod
 from asyncio import CancelledError, StreamReader, StreamWriter
 from collections import namedtuple
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager, suppress
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from pathlib import Path
 from socket import create_connection
 from ssl import VerifyMode
-from typing import Optional, TextIO, cast
+from typing import Optional, TextIO, Union, cast
+from typing_extensions import Self
 
-from construct import Const, Container, GreedyBytes, GreedyRange, Int8ul, Int16ub, Int64ul, Prefixed, Struct
-from construct import Enum as ConstructEnum
+from construct import Const, GreedyBytes, GreedyRange, Int8ul, Int16ub, Int64ul, Prefixed, Struct
+from construct_typed import DataclassMixin, DataclassStruct, EnumBase, TEnum, csfield
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives._serialization import Encoding, NoEncryption, PrivateFormat, PublicFormat
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -34,9 +35,8 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from opack2 import dumps
 from packaging.version import Version
 from pytun_pmd3 import TunTapDevice
-from qh3.asyncio import QuicConnectionProtocol
 from qh3.asyncio.client import connect as aioquic_connect
-from qh3.asyncio.protocol import QuicStreamHandler
+from qh3.asyncio.protocol import QuicConnectionProtocol, QuicStreamHandler
 from qh3.quic import packet_builder
 from qh3.quic.configuration import QuicConfiguration
 from qh3.quic.connection import QuicConnection
@@ -47,9 +47,9 @@ from srptools.constants import PRIME_3072, PRIME_3072_GEN
 from pymobiledevice3.lockdown_service_provider import LockdownServiceProvider
 from pymobiledevice3.osu.os_utils import get_os_utils
 
-try:
+if sys.version_info < (3, 13):
     from sslpsk_pmd3.sslpsk import SSLPSKContext
-except ImportError:
+else:
     SSLPSKContext = None
 
 from pymobiledevice3.bonjour import DEFAULT_BONJOUR_TIMEOUT, browse_remotepairing
@@ -90,47 +90,48 @@ UDP_HEADER_SIZE = 8
 IOS_DEVICE_MTU_SIZE = 1500
 packet_builder.PACKET_MAX_SIZE = IOS_DEVICE_MTU_SIZE - IPV6_HEADER_SIZE - UDP_HEADER_SIZE
 
-PairingDataComponentType = ConstructEnum(
-    Int8ul,
-    METHOD=0x00,
-    IDENTIFIER=0x01,
-    SALT=0x02,
-    PUBLIC_KEY=0x03,
-    PROOF=0x04,
-    ENCRYPTED_DATA=0x05,
-    STATE=0x06,
-    ERROR=0x07,
-    RETRY_DELAY=0x08,
-    CERTIFICATE=0x09,
-    SIGNATURE=0x0A,
-    PERMISSIONS=0x0B,
-    FRAGMENT_DATA=0x0C,
-    FRAGMENT_LAST=0x0D,
-    SESSION_ID=0x0E,
-    TTL=0x0F,
-    EXTRA_DATA=0x10,
-    INFO=0x11,
-    ACL=0x12,
-    FLAGS=0x13,
-    VALIDATION_DATA=0x14,
-    MFI_AUTH_TOKEN=0x15,
-    MFI_PRODUCT_TYPE=0x16,
-    SERIAL_NUMBER=0x17,
-    MFI_AUTH_TOKEN_UUID=0x18,
-    APP_FLAGS=0x19,
-    OWNERSHIP_PROOF=0x1A,
-    SETUP_CODE_TYPE=0x1B,
-    PRODUCTION_DATA=0x1C,
-    APP_INFO=0x1D,
-    SEPARATOR=0xFF,
-)
 
-PairingDataComponentTLV8 = Struct(
-    "type" / PairingDataComponentType,
-    "data" / Prefixed(Int8ul, GreedyBytes),
-)
+class PairingDataComponentType(EnumBase):
+    METHOD = 0x00
+    IDENTIFIER = 0x01
+    SALT = 0x02
+    PUBLIC_KEY = 0x03
+    PROOF = 0x04
+    ENCRYPTED_DATA = 0x05
+    STATE = 0x06
+    ERROR = 0x07
+    RETRY_DELAY = 0x08
+    CERTIFICATE = 0x09
+    SIGNATURE = 0x0A
+    PERMISSIONS = 0x0B
+    FRAGMENT_DATA = 0x0C
+    FRAGMENT_LAST = 0x0D
+    SESSION_ID = 0x0E
+    TTL = 0x0F
+    EXTRA_DATA = 0x10
+    INFO = 0x11
+    ACL = 0x12
+    FLAGS = 0x13
+    VALIDATION_DATA = 0x14
+    MFI_AUTH_TOKEN = 0x15
+    MFI_PRODUCT_TYPE = 0x16
+    SERIAL_NUMBER = 0x17
+    MFI_AUTH_TOKEN_UUID = 0x18
+    APP_FLAGS = 0x19
+    OWNERSHIP_PROOF = 0x1A
+    SETUP_CODE_TYPE = 0x1B
+    PRODUCTION_DATA = 0x1C
+    APP_INFO = 0x1D
+    SEPARATOR = 0xFF
 
-PairingDataComponentTLVBuf = GreedyRange(PairingDataComponentTLV8)
+
+@dataclasses.dataclass
+class PairingDataComponentTLV8(DataclassMixin):
+    type: PairingDataComponentType = csfield(TEnum(Int8ul, PairingDataComponentType))
+    data: bytes = csfield(Prefixed(Int8ul, GreedyBytes))
+
+
+PairingDataComponentTLVBuf = GreedyRange(DataclassStruct(PairingDataComponentTLV8))
 
 PairConsentResult = namedtuple("PairConsentResult", "public_key salt pin")
 
@@ -148,11 +149,16 @@ RPPairingPacket = Struct(
 
 
 class RemotePairingTunnel(ABC):
-    def __init__(self):
+    def __init__(self) -> None:
         self._queue = asyncio.Queue()
-        self._tun_read_task = None
-        self._logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-        self.tun = None
+        self._tun_read_task: Optional[asyncio.Task] = None
+        self._logger: logging.Logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
+        self._tun: Optional[TunTapDevice] = None
+
+    @property
+    def tun(self) -> TunTapDevice:
+        assert self._tun is not None
+        return self._tun
 
     @abstractmethod
     async def send_packet_to_device(self, packet: bytes) -> None:
@@ -185,29 +191,30 @@ class RemotePairingTunnel(ABC):
                             continue
                         await self.send_packet_to_device(packet)
         except ConnectionResetError:
-            self._logger.warning(f"got connection reset in {asyncio.current_task().get_name()}")
+            self._logger.warning(f"got connection reset in {cast(asyncio.Task, asyncio.current_task()).get_name()}")
         except OSError:
-            self._logger.warning(f"got oserror in {asyncio.current_task().get_name()}")
+            self._logger.warning(f"got oserror in {cast(asyncio.Task, asyncio.current_task()).get_name()}")
 
-    def start_tunnel(self, address: str, mtu: int, interface_name=DEFAULT_INTERFACE_NAME) -> None:
+    def start_tunnel(self, address: str, mtu: int, interface_name: str = DEFAULT_INTERFACE_NAME) -> None:
         if sys.platform == "win32":
             # Only win32 tunnel implementation supports interface name
             self.tun = TunTapDevice(interface_name)
         else:
-            self.tun = TunTapDevice()
+            self._tun = TunTapDevice()
         self.tun.addr = address
         self.tun.mtu = mtu
         self.tun.up()
         self._tun_read_task = asyncio.create_task(self.tun_read_task(), name=f"tun-read-{address}")
 
     async def stop_tunnel(self) -> None:
-        self._logger.debug(f"[{asyncio.current_task().get_name()}] stopping tunnel")
-        self._tun_read_task.cancel()
-        with suppress(CancelledError):
-            await self._tun_read_task
-        if self.tun is not None:
-            self.tun.close()
-        self.tun = None
+        self._logger.debug(f"[{cast(asyncio.Task, asyncio.current_task()).get_name()}] stopping tunnel")
+        if self._tun_read_task is not None:
+            self._tun_read_task.cancel()
+            with suppress(CancelledError):
+                await self._tun_read_task
+        if self._tun is not None:
+            self._tun.close()
+        self._tun = None
 
     @staticmethod
     def _encode_cdtunnel_packet(data: dict) -> bytes:
@@ -219,7 +226,7 @@ class RemotePairingQuicTunnel(RemotePairingTunnel, QuicConnectionProtocol):
     MAX_IDLE_TIMEOUT = 30.0
     REQUESTED_MTU = 1420
 
-    def __init__(self, quic: QuicConnection, stream_handler: Optional[QuicStreamHandler] = None):
+    def __init__(self, quic: QuicConnection, stream_handler: Optional[QuicStreamHandler] = None) -> None:
         RemotePairingTunnel.__init__(self)
         QuicConnectionProtocol.__init__(self, quic, stream_handler)
         self._keep_alive_task = None
@@ -251,14 +258,15 @@ class RemotePairingQuicTunnel(RemotePairingTunnel, QuicConnectionProtocol):
             await self.ping()
             await asyncio.sleep(self._quic.configuration.idle_timeout / 2)
 
-    def start_tunnel(self, address: str, mtu: int, interface_name=DEFAULT_INTERFACE_NAME) -> None:
+    def start_tunnel(self, address: str, mtu: int, interface_name: str = DEFAULT_INTERFACE_NAME) -> None:
         super().start_tunnel(address, mtu, interface_name=interface_name)
         self._keep_alive_task = asyncio.create_task(self.keep_alive_task())
 
     async def stop_tunnel(self) -> None:
-        self._keep_alive_task.cancel()
-        with suppress(CancelledError):
-            await self._keep_alive_task
+        if self._keep_alive_task is not None:
+            self._keep_alive_task.cancel()
+            with suppress(CancelledError):
+                await self._keep_alive_task
         await super().stop_tunnel()
 
     def quic_event_received(self, event: QuicEvent) -> None:
@@ -277,11 +285,11 @@ class RemotePairingQuicTunnel(RemotePairingTunnel, QuicConnectionProtocol):
 class RemotePairingTcpTunnel(RemotePairingTunnel):
     REQUESTED_MTU = 16000
 
-    def __init__(self, reader: StreamReader, writer: StreamWriter):
+    def __init__(self, reader: StreamReader, writer: StreamWriter) -> None:
         RemotePairingTunnel.__init__(self)
-        self._reader = reader
-        self._writer = writer
-        self._sock_read_task = None
+        self._reader: StreamReader = reader
+        self._writer: StreamWriter = writer
+        self._sock_read_task: Optional[asyncio.Task] = None
 
     async def send_packet_to_device(self, packet: bytes) -> None:
         self._writer.write(packet)
@@ -299,7 +307,9 @@ class RemotePairingTcpTunnel(RemotePairingTunnel):
                 except asyncio.exceptions.IncompleteReadError:
                     await asyncio.sleep(1)
         except OSError as e:
-            self._logger.warning(f"got {e.__class__.__name__} in {asyncio.current_task().get_name()}")
+            self._logger.warning(
+                f"got {e.__class__.__name__} in {cast(asyncio.Task, asyncio.current_task()).get_name()}"
+            )
             await self.wait_closed()
 
     async def wait_closed(self) -> None:
@@ -311,14 +321,15 @@ class RemotePairingTcpTunnel(RemotePairingTunnel):
         await self._writer.drain()
         return json.loads(CDTunnelPacket.parse(await self._reader.read(self.REQUESTED_MTU)).body)
 
-    def start_tunnel(self, address: str, mtu: int, interface_name=DEFAULT_INTERFACE_NAME) -> None:
+    def start_tunnel(self, address: str, mtu: int, interface_name: str = DEFAULT_INTERFACE_NAME) -> None:
         super().start_tunnel(address, mtu, interface_name=interface_name)
         self._sock_read_task = asyncio.create_task(self.sock_read_task(), name=f"sock-read-task-{address}")
 
     async def stop_tunnel(self) -> None:
-        self._sock_read_task.cancel()
-        with suppress(CancelledError):
-            await self._sock_read_task
+        if self._sock_read_task is not None:
+            self._sock_read_task.cancel()
+            with suppress(CancelledError):
+                await self._sock_read_task
         await super().stop_tunnel()
         if not self._writer.is_closing():
             self._writer.close()
@@ -344,26 +355,26 @@ class StartTcpTunnel(ABC):
         pass
 
     @abstractmethod
-    async def start_tcp_tunnel(self) -> AsyncGenerator[TunnelResult, None]:
+    def start_tcp_tunnel(self) -> AbstractAsyncContextManager[TunnelResult]:
         pass
 
 
 class RemotePairingProtocol(StartTcpTunnel):
     WIRE_PROTOCOL_VERSION = 19
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.hostname: Optional[str] = None
-        self._sequence_number = 0
-        self._encrypted_sequence_number = 0
-        self.version = None
-        self.handshake_info = None
-        self.x25519_private_key = X25519PrivateKey.generate()
-        self.ed25519_private_key = Ed25519PrivateKey.generate()
-        self.identifier = generate_host_id()
-        self.srp_context = None
-        self.encryption_key = None
-        self.signature = None
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self._sequence_number: int = 0
+        self._encrypted_sequence_number: int = 0
+        self.version: Optional[int] = None
+        self.handshake_info: Optional[dict] = None
+        self.x25519_private_key: X25519PrivateKey = X25519PrivateKey.generate()
+        self.ed25519_private_key: Ed25519PrivateKey = Ed25519PrivateKey.generate()
+        self.identifier: str = generate_host_id()
+        self.srp_context: Optional[SRPClientSession] = None
+        self.encryption_key: Optional[bytes] = None
+        self.signature: Optional[bytes] = None
+        self.logger: logging.Logger = logging.getLogger(self.__class__.__name__)
 
     @abstractmethod
     async def close(self) -> None:
@@ -415,6 +426,7 @@ class RemotePairingProtocol(StartTcpTunnel):
         return response["createListener"]
 
     async def create_tcp_listener(self) -> dict:
+        assert self.encryption_key is not None
         request = {
             "request": {
                 "_0": {
@@ -434,7 +446,7 @@ class RemotePairingProtocol(StartTcpTunnel):
         self,
         secrets_log_file: Optional[TextIO] = None,
         max_idle_timeout: float = RemotePairingQuicTunnel.MAX_IDLE_TIMEOUT,
-    ) -> AsyncGenerator[TunnelResult, None]:
+    ) -> AsyncIterator[TunnelResult]:
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         parameters = await self.create_quic_listener(private_key)
         cert = make_cert(private_key, private_key.public_key())
@@ -450,9 +462,11 @@ class RemotePairingProtocol(StartTcpTunnel):
             cert.public_bytes(Encoding.PEM),
             private_key.private_bytes(Encoding.PEM, PrivateFormat.TraditionalOpenSSL, NoEncryption()).decode(),
         )
-        configuration.secrets_log_file = secrets_log_file
+        if secrets_log_file is not None:
+            configuration.secrets_log_file = secrets_log_file
 
         host = self.hostname
+        assert host is not None
         port = parameters["port"]
 
         self.logger.debug(f"Connecting to {host}:{port}")
@@ -488,7 +502,7 @@ class RemotePairingProtocol(StartTcpTunnel):
             ) from e
 
     @asynccontextmanager
-    async def start_tcp_tunnel(self) -> AsyncGenerator[TunnelResult, None]:
+    async def start_tcp_tunnel(self) -> AsyncIterator[TunnelResult]:
         parameters = await self.create_tcp_listener()
         host = self.hostname
         port = parameters["port"]
@@ -544,10 +558,12 @@ class RemotePairingProtocol(StartTcpTunnel):
 
     @property
     def remote_identifier(self) -> str:
+        assert self.handshake_info is not None
         return self.handshake_info["peerDeviceInfo"]["identifier"]
 
     @property
     def remote_device_model(self) -> str:
+        assert self.handshake_info is not None
         return self.handshake_info["peerDeviceInfo"]["model"]
 
     @property
@@ -571,8 +587,8 @@ class RemotePairingProtocol(StartTcpTunnel):
         """Display a Trust / Don't Trust dialog"""
 
         tlv = PairingDataComponentTLVBuf.build([
-            {"type": PairingDataComponentType.METHOD, "data": b"\x00"},
-            {"type": PairingDataComponentType.STATE, "data": b"\x01"},
+            PairingDataComponentTLV8(type=PairingDataComponentType.METHOD, data=b"\x00"),
+            PairingDataComponentTLV8(type=PairingDataComponentType.STATE, data=b"\x01"),
         ])
 
         await self._send_pairing_data({
@@ -612,17 +628,18 @@ class RemotePairingProtocol(StartTcpTunnel):
         )
         client_session.process(pairing_consent_result.public_key.hex(), pairing_consent_result.salt.hex())
         self.srp_context = client_session
-        self.encryption_key = binascii.unhexlify(self.srp_context.key)
+        self.encryption_key = binascii.unhexlify(client_session.key)
 
     async def _verify_proof(self) -> None:
+        assert self.srp_context is not None
         client_public = binascii.unhexlify(self.srp_context.public)
         client_session_key_proof = binascii.unhexlify(self.srp_context.key_proof)
 
         tlv = PairingDataComponentTLVBuf.build([
-            {"type": PairingDataComponentType.STATE, "data": b"\x03"},
-            {"type": PairingDataComponentType.PUBLIC_KEY, "data": client_public[:255]},
-            {"type": PairingDataComponentType.PUBLIC_KEY, "data": client_public[255:]},
-            {"type": PairingDataComponentType.PROOF, "data": client_session_key_proof},
+            PairingDataComponentTLV8(type=PairingDataComponentType.STATE, data=b"\x03"),
+            PairingDataComponentTLV8(type=PairingDataComponentType.PUBLIC_KEY, data=client_public[:255]),
+            PairingDataComponentTLV8(type=PairingDataComponentType.PUBLIC_KEY, data=client_public[255:]),
+            PairingDataComponentTLV8(type=PairingDataComponentType.PROOF, data=client_session_key_proof),
         ])
 
         response = await self._send_receive_pairing_data({
@@ -634,7 +651,8 @@ class RemotePairingProtocol(StartTcpTunnel):
         data = self.decode_tlv(PairingDataComponentTLVBuf.parse(response))
         assert self.srp_context.verify_proof(data[PairingDataComponentType.PROOF].hex().encode())
 
-    async def _save_pair_record_on_peer(self) -> dict:
+    async def _save_pair_record_on_peer(self) -> list[PairingDataComponentTLV8]:
+        assert self.encryption_key is not None
         # HKDF with above computed key (SRP_compute_key) + Pair-Setup-Encrypt-Salt + Pair-Setup-Encrypt-Info
         # result used as key for chacha20-poly1305
         setup_encryption_key = HKDF(
@@ -671,22 +689,22 @@ class RemotePairingProtocol(StartTcpTunnel):
         })
 
         tlv = PairingDataComponentTLVBuf.build([
-            {"type": PairingDataComponentType.IDENTIFIER, "data": self.identifier.encode()},
-            {
-                "type": PairingDataComponentType.PUBLIC_KEY,
-                "data": self.ed25519_private_key.public_key().public_bytes_raw(),
-            },
-            {"type": PairingDataComponentType.SIGNATURE, "data": self.signature},
-            {"type": PairingDataComponentType.INFO, "data": device_info},
+            PairingDataComponentTLV8(type=PairingDataComponentType.IDENTIFIER, data=self.identifier.encode()),
+            PairingDataComponentTLV8(
+                type=PairingDataComponentType.PUBLIC_KEY,
+                data=self.ed25519_private_key.public_key().public_bytes_raw(),
+            ),
+            PairingDataComponentTLV8(type=PairingDataComponentType.SIGNATURE, data=self.signature),
+            PairingDataComponentTLV8(type=PairingDataComponentType.INFO, data=device_info),
         ])
 
         cip = ChaCha20Poly1305(setup_encryption_key)
         encrypted_data = cip.encrypt(b"\x00\x00\x00\x00PS-Msg05", tlv, b"")
 
         tlv = PairingDataComponentTLVBuf.build([
-            {"type": PairingDataComponentType.ENCRYPTED_DATA, "data": encrypted_data[:255]},
-            {"type": PairingDataComponentType.ENCRYPTED_DATA, "data": encrypted_data[255:]},
-            {"type": PairingDataComponentType.STATE, "data": b"\x05"},
+            PairingDataComponentTLV8(type=PairingDataComponentType.ENCRYPTED_DATA, data=encrypted_data[:255]),
+            PairingDataComponentTLV8(type=PairingDataComponentType.ENCRYPTED_DATA, data=encrypted_data[255:]),
+            PairingDataComponentTLV8(type=PairingDataComponentType.STATE, data=b"\x05"),
         ])
 
         response = await self._send_receive_pairing_data({
@@ -704,6 +722,8 @@ class RemotePairingProtocol(StartTcpTunnel):
         return tlv
 
     def _init_client_server_main_encryption_keys(self) -> None:
+        assert self.encryption_key is not None
+
         client_key = HKDF(
             algorithm=hashes.SHA512(),
             length=32,
@@ -740,11 +760,11 @@ class RemotePairingProtocol(StartTcpTunnel):
 
     async def _validate_pairing(self) -> bool:
         pairing_data = PairingDataComponentTLVBuf.build([
-            {"type": PairingDataComponentType.STATE, "data": b"\x01"},
-            {
-                "type": PairingDataComponentType.PUBLIC_KEY,
-                "data": self.x25519_private_key.public_key().public_bytes_raw(),
-            },
+            PairingDataComponentTLV8(type=PairingDataComponentType.STATE, data=b"\x01"),
+            PairingDataComponentTLV8(
+                type=PairingDataComponentType.PUBLIC_KEY,
+                data=self.x25519_private_key.public_key().public_bytes_raw(),
+            ),
         ])
         response = await self._send_receive_pairing_data({
             "data": pairing_data,
@@ -787,15 +807,15 @@ class RemotePairingProtocol(StartTcpTunnel):
         encrypted_data = cip.encrypt(
             b"\x00\x00\x00\x00PV-Msg03",
             PairingDataComponentTLVBuf.build([
-                {"type": PairingDataComponentType.IDENTIFIER, "data": self.identifier.encode()},
-                {"type": PairingDataComponentType.SIGNATURE, "data": signature},
+                PairingDataComponentTLV8(type=PairingDataComponentType.IDENTIFIER, data=self.identifier.encode()),
+                PairingDataComponentTLV8(type=PairingDataComponentType.SIGNATURE, data=signature),
             ]),
             b"",
         )
 
         pairing_data = PairingDataComponentTLVBuf.build([
-            {"type": PairingDataComponentType.STATE, "data": b"\x03"},
-            {"type": PairingDataComponentType.ENCRYPTED_DATA, "data": encrypted_data},
+            PairingDataComponentTLV8(type=PairingDataComponentType.STATE, data=b"\x03"),
+            PairingDataComponentTLV8(type=PairingDataComponentType.ENCRYPTED_DATA, data=encrypted_data),
         ])
 
         response = await self._send_receive_pairing_data({
@@ -859,7 +879,7 @@ class RemotePairingProtocol(StartTcpTunnel):
             )
         raise PyMobileDevice3Exception(f"Got an unknown state message: {response}")
 
-    async def _send_receive_plain_request(self, plain_request: dict):
+    async def _send_receive_plain_request(self, plain_request: dict) -> dict:
         await self._send_plain_request(plain_request)
         return await self._receive_plain_response()
 
@@ -876,7 +896,7 @@ class RemotePairingProtocol(StartTcpTunnel):
         return response["message"]["plain"]["_0"]
 
     @staticmethod
-    def decode_tlv(tlv_list: list[Container]) -> dict:
+    def decode_tlv(tlv_list: list[PairingDataComponentTLV8]) -> dict:
         result = {}
         for tlv in tlv_list:
             if tlv.type in result:
@@ -885,17 +905,17 @@ class RemotePairingProtocol(StartTcpTunnel):
                 result[tlv.type] = tlv.data
         return result
 
-    async def __aenter__(self) -> "CoreDeviceTunnelService":
+    async def __aenter__(self) -> Self:
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:  # noqa: ANN001
         await self.close()
 
 
 class CoreDeviceTunnelService(RemotePairingProtocol, RemoteService):
     SERVICE_NAME = "com.apple.internal.dt.coredevice.untrusted.tunnelservice"
 
-    def __init__(self, rsd: RemoteServiceDiscoveryService):
+    def __init__(self, rsd: RemoteServiceDiscoveryService) -> None:
         RemoteService.__init__(self, rsd, self.SERVICE_NAME)
         RemotePairingProtocol.__init__(self)
         self.version: Optional[int] = None
@@ -932,9 +952,9 @@ class CoreDeviceTunnelService(RemotePairingProtocol, RemoteService):
 class RemotePairingTunnelService(RemotePairingProtocol):
     def __init__(self, remote_identifier: str, hostname: str, port: int) -> None:
         RemotePairingProtocol.__init__(self)
-        self._remote_identifier = remote_identifier
+        self._remote_identifier: str = remote_identifier
         self.hostname = hostname
-        self.port = port
+        self.port: int = port
         self._reader: Optional[StreamReader] = None
         self._writer: Optional[StreamWriter] = None
 
@@ -965,18 +985,20 @@ class RemotePairingTunnelService(RemotePairingProtocol):
         self._reader = None
 
     async def receive_response(self) -> dict:
+        assert self._reader is not None
         await self._reader.readexactly(len(REPAIRING_PACKET_MAGIC))
         size = struct.unpack(">H", await self._reader.readexactly(2))[0]
         return json.loads(await self._reader.readexactly(size))
 
     async def send_request(self, data: dict) -> None:
+        assert self._writer is not None
         self._writer.write(
             RPPairingPacket.build({"body": json.dumps(data, default=self._default_json_encoder).encode()})
         )
         await self._writer.drain()
 
     @staticmethod
-    def _default_json_encoder(obj) -> str:
+    def _default_json_encoder(obj: object) -> str:
         if isinstance(obj, bytes):
             return base64.b64encode(obj).decode()
         raise TypeError()
@@ -1003,6 +1025,7 @@ class CoreDeviceTunnelProxy(StartTcpTunnel):
 
     @classmethod
     async def create(cls, lockdown: LockdownServiceProvider) -> "CoreDeviceTunnelProxy":
+        assert lockdown.udid is not None
         return cls(await lockdown.aio_start_lockdown_service(cls.SERVICE_NAME), lockdown.udid)
 
     def __init__(self, service: ServiceConnection, remote_identifier: str) -> None:
@@ -1014,8 +1037,10 @@ class CoreDeviceTunnelProxy(StartTcpTunnel):
         return self._remote_identifier
 
     @asynccontextmanager
-    async def start_tcp_tunnel(self) -> AsyncGenerator["TunnelResult", None]:
+    async def start_tcp_tunnel(self) -> "AsyncIterator[TunnelResult]":
         assert self._service is not None, "service must be connected first"
+        assert self._service.reader is not None
+        assert self._service.writer is not None
         tunnel = RemotePairingTcpTunnel(self._service.reader, self._service.writer)
         handshake_response = await tunnel.request_tunnel_establish()
         tunnel.start_tunnel(
@@ -1078,7 +1103,7 @@ async def start_tunnel_over_remotepairing(
     secrets: Optional[TextIO] = None,
     max_idle_timeout: float = RemotePairingQuicTunnel.MAX_IDLE_TIMEOUT,
     protocol: TunnelProtocol = TunnelProtocol.QUIC,
-) -> AsyncGenerator[TunnelResult, None]:
+) -> AsyncIterator[TunnelResult]:
     async with remote_pairing:
         if protocol == TunnelProtocol.QUIC:
             async with remote_pairing.start_quic_tunnel(
@@ -1096,7 +1121,7 @@ async def start_tunnel_over_core_device(
     secrets: Optional[TextIO] = None,
     max_idle_timeout: float = RemotePairingQuicTunnel.MAX_IDLE_TIMEOUT,
     protocol: TunnelProtocol = TunnelProtocol.QUIC,
-) -> AsyncGenerator[TunnelResult, None]:
+) -> AsyncIterator[TunnelResult]:
     stop_remoted_if_required()
     async with service_provider:
         if protocol == TunnelProtocol.QUIC:
@@ -1113,11 +1138,11 @@ async def start_tunnel_over_core_device(
 
 @asynccontextmanager
 async def start_tunnel(
-    protocol_handler: RemotePairingProtocol,
+    protocol_handler: Union[RemotePairingProtocol, CoreDeviceTunnelProxy],
     secrets: Optional[TextIO] = None,
     max_idle_timeout: float = RemotePairingQuicTunnel.MAX_IDLE_TIMEOUT,
     protocol: TunnelProtocol = TunnelProtocol.QUIC,
-) -> AsyncGenerator[TunnelResult, None]:
+) -> AsyncIterator[TunnelResult]:
     if isinstance(protocol_handler, CoreDeviceTunnelService):
         async with start_tunnel_over_core_device(
             protocol_handler, secrets=secrets, max_idle_timeout=max_idle_timeout, protocol=protocol
@@ -1143,9 +1168,11 @@ async def get_core_device_tunnel_services(
     result = []
     for rsd in await get_rsds(bonjour_timeout=bonjour_timeout, udid=udid):
         if udid is None and (
-            (Version(rsd.product_version) < Version("17.0")) and not rsd.product_type.startswith("RealityDevice")
+            (Version(rsd.product_version) < Version("17.0"))
+            and rsd.product_type is not None
+            and not rsd.product_type.startswith("RealityDevice")
         ):
-            logger.debug(f"Skipping {rsd.udid}:, iOS {rsd.product_version} < 17.0")
+            logger.debug(f"Skipping {rsd.udid}: iOS {rsd.product_version} < 17.0")
             await rsd.close()
             continue
         try:
@@ -1162,6 +1189,8 @@ async def get_remote_pairing_tunnel_services(
 ) -> list[RemotePairingTunnelService]:
     result = []
     for answer in await browse_remotepairing(timeout=bonjour_timeout):
+        if answer.port is None:
+            continue
         for address in answer.addresses:
             for identifier in iter_remote_paired_identifiers():
                 if udid is not None and identifier != udid:

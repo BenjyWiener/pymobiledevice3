@@ -9,7 +9,7 @@ class DeviceInfoService(CoreDeviceService):
 
     SERVICE_NAME = "com.apple.coredevice.deviceinfo"
 
-    def __init__(self, rsd: RemoteServiceDiscoveryService):
+    def __init__(self, rsd: RemoteServiceDiscoveryService) -> None:
         super().__init__(rsd, self.SERVICE_NAME)
 
     async def get_device_info(self) -> dict:

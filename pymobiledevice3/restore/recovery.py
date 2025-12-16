@@ -21,18 +21,20 @@ RESTORE_VARIANT_MACOS_RECOVERY_OS = "macOS Customer"
 
 
 class Recovery(BaseRestore):
-    def __init__(self, ipsw: ZipFile, device: Device, tss: Optional[dict] = None, behavior: Behavior = Behavior.Update):
+    def __init__(
+        self, ipsw: ZipFile, device: Device, tss: Optional[dict] = None, behavior: Behavior = Behavior.Update
+    ) -> None:
         super().__init__(ipsw, device, tss, behavior)
-        self.tss_localpolicy = None
-        self.tss_recoveryos_root_ticket = None
+        self.tss_localpolicy: Optional[TSSResponse] = None
+        self.tss_recoveryos_root_ticket: Optional[TSSResponse] = None
         self.restore_boot_args = None
 
-    def reconnect_irecv(self, is_recovery=None):
+    def reconnect_irecv(self, is_recovery: Optional[bool] = None) -> None:
         self.logger.debug("waiting for device to reconnect...")
         self.device.irecv = IRecv(ecid=self.device.ecid, is_recovery=is_recovery)
         self.logger.debug(f"connected mode: {self.device.irecv.mode}")
 
-    def get_preboard_manifest(self):
+    def get_preboard_manifest(self) -> bytes:
         overrides = {
             "@APTicket": True,
             "ApProductionMode": 0,
@@ -144,7 +146,7 @@ class Recovery(BaseRestore):
         # send request and grab response
         return await tss.send_receive()
 
-    def get_local_policy_tss_response(self):
+    async def get_local_policy_tss_response(self) -> TSSResponse:
         # populate parameters
         parameters = {
             "ApECID": self.device.ecid,
@@ -176,6 +178,7 @@ class Recovery(BaseRestore):
 
         parameters["Ap,LocalPolicy"] = lpol
 
+        assert self.tss is not None
         # Add Ap,NextStageIM4MHash
         # Get previous TSS ticket
         ticket = self.tss.ap_img4_ticket
@@ -188,9 +191,9 @@ class Recovery(BaseRestore):
         # add common tags from manifest
         request.add_local_policy_tags(parameters)
 
-        return request.send_receive()
+        return await request.send_receive()
 
-    def get_recoveryos_root_ticket_tss_response(self):
+    async def get_recoveryos_root_ticket_tss_response(self) -> TSSResponse:
         # populate parameters
         parameters = {
             "ApECID": self.device.ecid,
@@ -229,7 +232,7 @@ class Recovery(BaseRestore):
         # Fills digests & co
         request.add_ap_recovery_tags(parameters)
 
-        return request.send_receive()
+        return await request.send_receive()
 
     async def fetch_tss_record(self) -> TSSResponse:
         if self.ipsw.build_manifest.build_major > 8 and self.device.ap_nonce is None:
@@ -239,8 +242,8 @@ class Recovery(BaseRestore):
         self.tss = await self.get_tss_response()
 
         if self.macos_variant:
-            self.tss_localpolicy = self.get_local_policy_tss_response()
-            self.tss_recoveryos_root_ticket = self.get_recoveryos_root_ticket_tss_response()
+            self.tss_localpolicy = await self.get_local_policy_tss_response()
+            self.tss_recoveryos_root_ticket = await self.get_recoveryos_root_ticket_tss_response()
         else:
             recovery_variant = self.build_identity["Info"].get("RecoveryVariant")
             if recovery_variant is not None:
@@ -248,7 +251,7 @@ class Recovery(BaseRestore):
 
         return self.tss
 
-    def send_component(self, name: str):
+    def send_component(self, name: str) -> None:
         # Use a specific TSS ticket for the Ap,LocalPolicy component
         data = None
         tss = self.tss
@@ -257,21 +260,22 @@ class Recovery(BaseRestore):
             # If Ap,LocalPolicy => Inject an empty policy
             data = lpol_file
 
+        assert tss is not None
         data = self.get_personalized_data(name, data=data, tss=tss)
         self.logger.info(f"Sending {name} ({len(data)} bytes)...")
         self.device.irecv.send_buffer(data)
 
-    def send_component_and_command(self, name, command):
+    def send_component_and_command(self, name: str, command: str) -> None:
         self.send_component(name)
         self.device.irecv.send_command(command)
 
-    def send_ibec(self):
+    def send_ibec(self) -> None:
         component = "iBEC"
         self.send_component(component)
         self.device.irecv.send_command("go", b_request=1)
         self.device.irecv.ctrl_transfer(0x21, 1)
 
-    def send_applelogo(self, allow_missing=True):
+    def send_applelogo(self, allow_missing: bool = True) -> None:
         component = "RestoreLogo"
 
         if not self.build_identity.has_component(component):
@@ -285,7 +289,7 @@ class Recovery(BaseRestore):
         self.device.irecv.send_command("setpicture 4")
         self.device.irecv.send_command("bgcolor 0 0 0")
 
-    def send_loaded_by_iboot(self):
+    def send_loaded_by_iboot(self) -> None:
         manifest = self.build_identity["Manifest"]
         for key, node in manifest.items():
             iboot = node["Info"].get("IsLoadedByiBoot", False)
@@ -298,7 +302,7 @@ class Recovery(BaseRestore):
                 self.logger.debug(f"{key} is loaded by iBoot")
                 self.send_component_and_command(key, "firmware")
 
-    def send_iboot_stage1_components(self):
+    def send_iboot_stage1_components(self) -> None:
         manifest = self.build_identity["Manifest"]
         for key, node in manifest.items():
             iboot = node["Info"].get("IsLoadedByiBoot", False)
@@ -311,7 +315,7 @@ class Recovery(BaseRestore):
                 self.logger.debug(f"{key} is loaded by iBoot Stage 1")
                 self.send_component_and_command(key, "firmware")
 
-    def send_ramdisk(self):
+    def send_ramdisk(self) -> None:
         component = "RestoreRamDisk"
         ramdisk_size = self.device.irecv.getenv("ramdisk-size")
         self.logger.info(f"ramdisk-size: {ramdisk_size}")
@@ -324,7 +328,7 @@ class Recovery(BaseRestore):
 
         time.sleep(2)
 
-    def send_kernelcache(self):
+    def send_kernelcache(self) -> None:
         component = "RestoreKernelCache"
 
         self.send_component(component)
@@ -337,10 +341,10 @@ class Recovery(BaseRestore):
         with contextlib.suppress(USBError):
             self.device.irecv.send_command("bootx", b_request=1)
 
-    def set_autoboot(self, enable: bool):
+    def set_autoboot(self, enable: bool) -> None:
         self.device.irecv.set_autoboot(enable)
 
-    def enter_restore(self):
+    def enter_restore(self) -> None:
         if self.macos_variant:
             self.restore_boot_args = "rd=md0 nand-enable-reformat=1 -progress -restore"
         elif self.ipsw.build_manifest.build_major >= 8:

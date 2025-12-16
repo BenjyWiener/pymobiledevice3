@@ -1,9 +1,10 @@
 import asyncio
 import logging
 from enum import Enum
-from typing import Optional
+from typing import Optional, cast
 from zipfile import ZipFile
 
+from ipsw_parser.build_identity import BuildIdentity
 from ipsw_parser.exceptions import NoSuchBuildIdentityError
 from ipsw_parser.ipsw import IPSW
 
@@ -27,8 +28,8 @@ class BaseRestore:
         self, ipsw: ZipFile, device: Device, tss: Optional[dict] = None, behavior: Behavior = Behavior.Update
     ) -> None:
         self.ipsw = IPSW(ipsw)
-        self.device = device
-        self.tss = TSSResponse(tss) if tss is not None else None
+        self.device: Device = device
+        self.tss: Optional[TSSResponse] = TSSResponse(tss) if tss is not None else None
 
         if not self.device.is_image4_supported:
             raise NotImplementedError("is_image4_supported is False")
@@ -42,6 +43,7 @@ class BaseRestore:
             Behavior.Erase: RESTORE_VARIANT_ERASE_INSTALL,
         }[behavior]
 
+        self.build_identity: BuildIdentity
         try:
             self.build_identity = self.ipsw.build_manifest.get_build_identity(
                 self.device.hardware_model, restore_behavior=behavior.value, variant=variant
@@ -54,11 +56,11 @@ class BaseRestore:
             else:
                 raise
 
-        self.macos_variant = None
+        self.macos_variant: Optional[str] = None
         try:
             self.macos_variant = self.ipsw.build_manifest.get_build_identity(
                 self.device.hardware_model, variant=RESTORE_VARIANT_MACOS_RECOVERY_OS
-            )
+            ).macos_variant
             self.logger.info("Performing macOS restore")
         except NoSuchBuildIdentityError:
             pass
@@ -73,18 +75,19 @@ class BaseRestore:
 
     @property
     def logger(self) -> logging.Logger:
-        return logging.getLogger(f"{asyncio.current_task().get_name()}-{self.__class__.__module__}")
+        return logging.getLogger(f"{cast(asyncio.Task, asyncio.current_task()).get_name()}-{self.__class__.__module__}")
 
     def get_personalized_data(
         self,
         component_name: str,
         data: Optional[bytes] = None,
-        tss: Optional[TSSResponse] = None,
+        *,
+        tss: TSSResponse,
         path: Optional[str] = None,
     ) -> bytes:
         return stitch_component(
             component_name,
-            self.build_identity.get_component(component_name, tss=tss, data=data, path=path).data,
+            cast(bytes, self.build_identity.get_component(component_name, tss=tss, data=data, path=path).data),
             tss,
             self.build_identity,
             self.device.ap_parameters,

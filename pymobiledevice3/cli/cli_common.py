@@ -5,9 +5,10 @@ import logging
 import os
 import sys
 import uuid
+from collections.abc import Callable
 from functools import wraps
 from textwrap import dedent
-from typing import Annotated, Any, Callable, Optional
+from typing import Annotated, Any, Optional
 
 import click
 import coloredlogs
@@ -50,7 +51,9 @@ def default_json_encoder(obj):
     raise TypeError()
 
 
-def print_json(buf, colored: Optional[bool] = None, default=default_json_encoder) -> str:
+def print_json(
+    buf: object, colored: Optional[bool] = None, default: Callable[[object], object] = default_json_encoder
+) -> str:
     if colored is None:
         colored = user_requested_colored_output()
     formatted_json = json.dumps(buf, sort_keys=True, indent=4, default=default)

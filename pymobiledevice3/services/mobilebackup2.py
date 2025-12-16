@@ -1,7 +1,7 @@
-#!/usr/bin/env python3
 import plistlib
 import time
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from datetime import datetime
 from pathlib import Path
@@ -380,7 +380,7 @@ class Mobilebackup2Service(LockdownService):
             return ret
 
     @contextmanager
-    def _backup_lock(self, afc, notification_proxy):
+    def _backup_lock(self, afc: AfcService, notification_proxy: NotificationProxyService) -> Iterator[None]:
         notification_proxy.notify_post(NP_SYNC_WILL_START)
         lockfile = afc.fopen("/com.apple.itunes.lock_sync", "r+")
         if lockfile:
@@ -408,14 +408,14 @@ class Mobilebackup2Service(LockdownService):
             notification_proxy.notify_post(NP_SYNC_DID_FINISH)
 
     @staticmethod
-    def _assert_backup_exists(backup_directory: Path, identifier: str):
+    def _assert_backup_exists(backup_directory: Path, identifier: str) -> None:
         device_directory = backup_directory / identifier
         assert (device_directory / "Info.plist").exists()
         assert (device_directory / "Manifest.plist").exists()
         assert (device_directory / "Status.plist").exists()
 
     @contextmanager
-    def device_link(self, backup_directory):
+    def device_link(self, backup_directory: Path) -> Iterator[DeviceLink]:
         dl = DeviceLink(self.service, backup_directory)
         dl.version_exchange()
         self.version_exchange(dl)

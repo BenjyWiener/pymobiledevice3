@@ -59,7 +59,7 @@ def apps_query(
 @cli.command("uninstall")
 def uninstall(service_provider: ServiceProviderDep, bundle_id: str) -> None:
     """Uninstall an app by bundle identifier."""
-    InstallationProxyService(lockdown=service_provider).uninstall(bundle_id)
+    InstallationProxyService(lockdown=service_provider).uninstall(bundle_id, handler=lambda x, y, z: 1)
 
 
 @cli.command("install")

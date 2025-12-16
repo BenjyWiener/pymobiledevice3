@@ -1,5 +1,5 @@
-#!/usr/bin/env python3
 import contextlib
+from collections.abc import Iterator
 from typing import Optional
 
 from pymobiledevice3.lockdown import LockdownClient
@@ -11,14 +11,16 @@ class PowerAssertionService(LockdownService):
     RSD_SERVICE_NAME = "com.apple.mobile.assertion_agent.shim.remote"
     SERVICE_NAME = "com.apple.mobile.assertion_agent"
 
-    def __init__(self, lockdown: LockdownServiceProvider):
+    def __init__(self, lockdown: LockdownServiceProvider) -> None:
         if isinstance(lockdown, LockdownClient):
             super().__init__(lockdown, self.SERVICE_NAME)
         else:
             super().__init__(lockdown, self.RSD_SERVICE_NAME)
 
     @contextlib.contextmanager
-    def create_power_assertion(self, type_: str, name: str, timeout: float, details: Optional[str] = None):
+    def create_power_assertion(
+        self, type_: str, name: str, timeout: float, details: Optional[str] = None
+    ) -> Iterator[None]:
         """Trigger IOPMAssertionCreateWithName"""
         msg = {
             "CommandKey": "CommandCreateAssertion",

@@ -1,7 +1,7 @@
 # extracted from ac2
 import logging
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from ipsw_parser.build_identity import BuildIdentity
 
@@ -102,15 +102,15 @@ SUPPORTED_MESSAGE_TYPES = {
 class RestoreOptions:
     def __init__(
         self,
-        firmware_preflight_info=None,
-        sep=None,
-        macos_variant=None,
-        build_identity: BuildIdentity = None,
-        restore_boot_args=None,
-        spp=None,
+        firmware_preflight_info: Optional[dict] = None,
+        sep: Optional[dict] = None,
+        macos_variant: Optional[str] = None,
+        build_identity: Optional[BuildIdentity] = None,
+        restore_boot_args: Optional[str] = None,
+        spp: Optional[dict[str, int]] = None,
         restore_behavior: Optional[str] = None,
-        msp=None,
-    ):
+        msp: Optional[int] = None,
+    ) -> None:
         self.AutoBootDelay = 0
 
         try:
@@ -135,11 +135,11 @@ class RestoreOptions:
             self.AllowUntetheredRestore = False
             self.AuthInstallEnableSso = False
 
-            macos_variant = build_identity.macos_variant
-            if macos_variant is not None:
-                self.AuthInstallRecoveryOSVariant = macos_variant
+            assert build_identity is not None
+            if build_identity.macos_variant is not None:
+                self.AuthInstallRecoveryOSVariant: str = build_identity.macos_variant
 
-            self.AuthInstallRestoreBehavior = restore_behavior
+            self.AuthInstallRestoreBehavior: Optional[str] = restore_behavior
             self.AutoBootDelay = 0
             self.BasebandUpdaterOutputPath = True
             self.DisableUserAuthentication = True
@@ -221,5 +221,5 @@ class RestoreOptions:
             }
         self.SystemPartitionPadding = spp
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return self.__dict__

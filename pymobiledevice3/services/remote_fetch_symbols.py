@@ -17,7 +17,7 @@ class DSCFile:
 class RemoteFetchSymbolsService(RemoteService):
     SERVICE_NAME = "com.apple.dt.remoteFetchSymbols"
 
-    def __init__(self, rsd: RemoteServiceDiscoveryService):
+    def __init__(self, rsd: RemoteServiceDiscoveryService) -> None:
         super().__init__(rsd, self.SERVICE_NAME)
 
     async def get_dsc_file_list(self) -> list[DSCFile]:

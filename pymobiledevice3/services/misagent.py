@@ -3,18 +3,19 @@ from io import BytesIO
 
 from pymobiledevice3.exceptions import PyMobileDevice3Exception
 from pymobiledevice3.lockdown import LockdownClient
+from pymobiledevice3.lockdown_service_provider import LockdownServiceProvider
 from pymobiledevice3.services.lockdown_service import LockdownService
 
 
 class ProvisioningProfile:
-    def __init__(self, buf: bytes):
-        self.buf = buf
+    def __init__(self, buf: bytes) -> None:
+        self.buf: bytes = buf
 
         xml = b"<?xml" + buf.split(b"<?xml", 1)[1]
         xml = xml.split(b"</plist>")[0] + b"</plist>"
         self.plist = plistlib.loads(xml)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self.plist)
 
 
@@ -22,7 +23,7 @@ class MisagentService(LockdownService):
     SERVICE_NAME = "com.apple.misagent"
     RSD_SERVICE_NAME = "com.apple.misagent.shim.remote"
 
-    def __init__(self, lockdown: LockdownClient):
+    def __init__(self, lockdown: LockdownServiceProvider) -> None:
         if isinstance(lockdown, LockdownClient):
             super().__init__(lockdown, self.SERVICE_NAME)
         else:

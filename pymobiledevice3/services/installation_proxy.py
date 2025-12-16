@@ -4,6 +4,7 @@ from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Callable, Optional
+from typing_extensions import TypeVarTuple, Unpack
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 from parameter_decorators import str_to_path
@@ -65,17 +66,25 @@ def classify_zip_file(zip_bytes: bytes) -> ZipFileType:
         raise AppInstallError("Invalid bytes package") from e
 
 
+_HandlerArgs = TypeVarTuple("_HandlerArgs", default=Unpack[tuple[()]])
+
+
 class InstallationProxyService(LockdownService):
     SERVICE_NAME = "com.apple.mobile.installation_proxy"
     RSD_SERVICE_NAME = "com.apple.mobile.installation_proxy.shim.remote"
 
-    def __init__(self, lockdown: LockdownServiceProvider):
+    def __init__(self, lockdown: LockdownServiceProvider) -> None:
         if isinstance(lockdown, LockdownClient):
             super().__init__(lockdown, self.SERVICE_NAME)
         else:
             super().__init__(lockdown, self.RSD_SERVICE_NAME)
 
-    def _watch_completion(self, handler: Optional[Callable] = None, ipcc: bool = False, *args) -> None:
+    def _watch_completion(
+        self,
+        handler: Optional[Callable[[int, Unpack[_HandlerArgs]]]] = None,
+        ipcc: bool = False,
+        *args: Unpack[_HandlerArgs],
+    ) -> None:
         while True:
             response = self.service.recv_plist()
             if not response:
@@ -102,48 +111,69 @@ class InstallationProxyService(LockdownService):
         bundle_identifier: str,
         cmd: str = "Archive",
         options: Optional[dict] = None,
-        handler: Optional[dict] = None,
-        *args,
+        handler: Optional[Callable[[int, Unpack[_HandlerArgs]]]] = None,
+        ipcc: bool = False,
+        *args: Unpack[_HandlerArgs],
     ) -> None:
         """send a low-level command to installation relay"""
-        cmd = {"Command": cmd, "ApplicationIdentifier": bundle_identifier}
-
-        if options is None:
-            options = {}
-
-        cmd.update({"ClientOptions": options})
-        self.service.send_plist(cmd)
-        self._watch_completion(handler, *args)
+        self.service.send_plist({
+            "Command": cmd,
+            "ApplicationIdentifier": bundle_identifier,
+            "ClientOptions": options or {},
+        })
+        self._watch_completion(handler, ipcc, *args)
 
     def install(
-        self, package_path: str, options: Optional[dict] = None, handler: Optional[Callable] = None, *args
+        self,
+        package_path: str,
+        options: Optional[dict] = None,
+        handler: Optional[Callable[[int, Unpack[_HandlerArgs]]]] = None,
+        developer: bool = False,
+        *args: Unpack[_HandlerArgs],
     ) -> None:
         """install given ipa/ipcc from device path"""
-        self.install_from_local(package_path, "Install", options, handler, args)
+        self.install_from_local(Path(package_path), "Install", options, handler, developer, *args)
 
-    def upgrade(self, ipa_path: str, options: Optional[dict] = None, handler: Optional[Callable] = None, *args) -> None:
+    def upgrade(
+        self,
+        ipa_path: str,
+        options: Optional[dict] = None,
+        handler: Optional[Callable[[int, Unpack[_HandlerArgs]]]] = None,
+        developer: bool = False,
+        *args: Unpack[_HandlerArgs],
+    ) -> None:
         """upgrade given ipa from device path"""
-        self.install_from_local(ipa_path, "Upgrade", options, handler, args)
+        self.install_from_local(Path(ipa_path), "Upgrade", options, handler, developer, *args)
 
     def restore(
-        self, bundle_identifier: str, options: Optional[dict] = None, handler: Optional[Callable] = None, *args
+        self,
+        bundle_identifier: str,
+        options: Optional[dict] = None,
+        handler: Optional[Callable[[int, Unpack[_HandlerArgs]]]] = None,
+        ipcc: bool = False,
+        *args: Unpack[_HandlerArgs],
     ) -> None:
         """no longer supported on newer iOS versions"""
-        self.send_cmd_for_bundle_identifier(bundle_identifier, "Restore", options, handler, args)
+        self.send_cmd_for_bundle_identifier(bundle_identifier, "Restore", options, handler, ipcc, *args)
 
     def uninstall(
-        self, bundle_identifier: str, options: Optional[dict] = None, handler: Optional[Callable] = None, *args
+        self,
+        bundle_identifier: str,
+        options: Optional[dict] = None,
+        handler: Optional[Callable[[int, Unpack[_HandlerArgs]]]] = None,
+        ipcc: bool = False,
+        *args: Unpack[_HandlerArgs],
     ) -> None:
         """uninstall given bundle_identifier"""
-        self.send_cmd_for_bundle_identifier(bundle_identifier, "Uninstall", options, handler, args)
+        self.send_cmd_for_bundle_identifier(bundle_identifier, "Uninstall", options, handler, ipcc, *args)
 
     def install_from_bytes(
         self,
         package_bytes: bytes,
         cmd: str = "Install",
         options: Optional[dict] = None,
-        handler: Optional[Callable] = None,
-        *args,
+        handler: Optional[Callable[[int, Unpack[_HandlerArgs]]]] = None,
+        *args: Unpack[_HandlerArgs],
     ) -> None:
         """upload given ipa/ipcc bytes object onto device and install it"""
         ipcc_mode = classify_zip_file(package_bytes).is_ipcc()
@@ -168,9 +198,9 @@ class InstallationProxyService(LockdownService):
         package_path: Path,
         cmd: str = "Install",
         options: Optional[dict] = None,
-        handler: Optional[Callable] = None,
+        handler: Optional[Callable[[int, Unpack[_HandlerArgs]]]] = None,
         developer: bool = False,
-        *args,
+        *args: Unpack[_HandlerArgs],
     ) -> None:
         """upload given ipa/ipcc onto device and install it"""
         ipcc_mode = package_path.suffix == ".ipcc"
@@ -178,37 +208,40 @@ class InstallationProxyService(LockdownService):
         if options is None:
             options = {}
 
-        if ipcc_mode:
-            options["PackageType"] = "CarrierBundle"
-        else:
-            if package_path.is_dir():
-                # treat as app, convert into an ipa
-                ipa_contents = create_ipa_contents_from_directory(str(package_path))
-            else:
-                # treat as ipa
-                ipa_contents = package_path.read_bytes()
-
         if developer:
             options["PackageType"] = "Developer"
 
         with AfcService(self.lockdown) as afc:
-            if not ipcc_mode:
-                afc.makedirs(TEMP_REMOTE_BASEDIR)
-                afc.set_file_contents(TEMP_REMOTE_IPA_FILE, ipa_contents)
-
-            else:
+            if ipcc_mode:
+                options["PackageType"] = "CarrierBundle"
                 self.upload_ipcc_from_path(package_path, afc)
+            else:
+                if package_path.is_dir():
+                    # treat as app, convert into an ipa
+                    ipa_contents = create_ipa_contents_from_directory(str(package_path))
+                else:
+                    # treat as ipa
+                    ipa_contents = package_path.read_bytes()
+                    afc.makedirs(TEMP_REMOTE_BASEDIR)
+                    afc.set_file_contents(TEMP_REMOTE_IPA_FILE, ipa_contents)
 
         self.send_package(cmd, options, handler, ipcc_mode, *args)
 
-    def send_package(self, cmd: str, options: Optional[dict], handler: Callable, ipcc_mode: bool = False, *args):
+    def send_package(
+        self,
+        cmd: str,
+        options: Optional[dict],
+        handler: Optional[Callable[[int, Unpack[_HandlerArgs]]]] = None,
+        ipcc_mode: bool = False,
+        *args: Unpack[_HandlerArgs],
+    ) -> None:
         self.service.send_plist({
             "Command": cmd,
             "ClientOptions": options,
             "PackagePath": (TEMP_REMOTE_IPCC_FOLDER if ipcc_mode else TEMP_REMOTE_IPA_FILE),
         })
 
-        self._watch_completion(handler, ipcc_mode, args)
+        self._watch_completion(handler, ipcc_mode, *args)
 
     def upload_ipcc_from_path(self, file: Path, afc_client: AfcService) -> None:
         """Used to upload a .ipcc file to an iPhone as a folder"""
@@ -224,7 +257,7 @@ class InstallationProxyService(LockdownService):
         self._upload_ipcc(file_stream, afc_client, file_name)
 
     def _upload_ipcc(self, file_stream: BytesIO, afc_client: AfcService, file_name: str) -> None:
-        self.logger.info(f"Uploading {file_name} contents..")
+        self.logger.info(f"Uploading {file_name} contents...")
 
         afc_client.makedirs(TEMP_REMOTE_IPCC_FOLDER)
 

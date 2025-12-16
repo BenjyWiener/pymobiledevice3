@@ -2,7 +2,7 @@ import hashlib
 import logging
 import plistlib
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from developer_disk_image.repo import DeveloperDiskImageRepository
 from packaging.version import Version
@@ -34,9 +34,9 @@ class MobileImageMounterService(LockdownService):
     # implemented in /usr/libexec/mobile_storage_proxy
     SERVICE_NAME = "com.apple.mobile.mobile_image_mounter"
     RSD_SERVICE_NAME = "com.apple.mobile.mobile_image_mounter.shim.remote"
-    IMAGE_TYPE: Optional[str] = None
+    IMAGE_TYPE: str
 
-    def __init__(self, lockdown: LockdownServiceProvider):
+    def __init__(self, lockdown: LockdownServiceProvider) -> None:
         if isinstance(lockdown, LockdownClient):
             super().__init__(lockdown, self.SERVICE_NAME)
         else:
@@ -198,10 +198,10 @@ class DeveloperDiskImageMounter(MobileImageMounterService):
     def mount(self, image: Path, signature: Path) -> None:
         self.raise_if_cannot_mount()
 
-        image = Path(image).read_bytes()
-        signature = Path(signature).read_bytes()
-        self.upload_image(self.IMAGE_TYPE, image, signature)
-        self.mount_image(self.IMAGE_TYPE, signature)
+        image_bytes = Path(image).read_bytes()
+        signature_bytes = Path(signature).read_bytes()
+        self.upload_image(self.IMAGE_TYPE, image_bytes, signature_bytes)
+        self.mount_image(self.IMAGE_TYPE, signature_bytes)
 
     def umount(self) -> None:
         self.unmount_image("/Developer")
@@ -215,24 +215,24 @@ class PersonalizedImageMounter(MobileImageMounterService):
     ) -> None:
         self.raise_if_cannot_mount()
 
-        image = image.read_bytes()
-        trust_cache = trust_cache.read_bytes()
+        image_bytes = image.read_bytes()
+        trust_cache_bytes = trust_cache.read_bytes()
 
         # try to fetch the personalization manifest if the device already has one
         # in case of failure, the service will close the socket, so we'll have to reestablish the connection
         # and query the manifest from Apple's ticket server instead
         try:
-            manifest = self.query_personalization_manifest("DeveloperDiskImage", hashlib.sha384(image).digest())
+            manifest = self.query_personalization_manifest("DeveloperDiskImage", hashlib.sha384(image_bytes).digest())
         except MissingManifestError:
             self.service = self.lockdown.start_lockdown_service(self.service_name)
             manifest = await self.get_manifest_from_tss(plistlib.loads(build_manifest.read_bytes()))
 
-        self.upload_image(self.IMAGE_TYPE, image, manifest)
+        self.upload_image(self.IMAGE_TYPE, image_bytes, manifest)
 
         extras = {}
         if info_plist is not None:
             extras["ImageInfoPlist"] = info_plist
-        extras["ImageTrustCache"] = trust_cache
+        extras["ImageTrustCache"] = trust_cache_bytes
         self.mount_image(self.IMAGE_TYPE, manifest, extras=extras)
 
     def umount(self) -> None:
@@ -315,7 +315,7 @@ class PersonalizedImageMounter(MobileImageMounterService):
 
 
 def auto_mount_developer(
-    lockdown: LockdownServiceProvider, xcode: Optional[str] = None, version: Optional[str] = None
+    lockdown: LockdownServiceProvider, xcode: Optional[Union[str, Path]] = None, version: Optional[str] = None
 ) -> None:
     """auto-detect correct DeveloperDiskImage and mount it"""
     if xcode is None:
@@ -330,8 +330,8 @@ def auto_mount_developer(
         raise AlreadyMountedError()
 
     if version is None:
-        version = Version(lockdown.product_version)
-        version = f"{version.major}.{version.minor}"
+        version_obj = Version(lockdown.product_version)
+        version = f"{version_obj.major}.{version_obj.minor}"
     image_dir = f"{xcode}/Contents/Developer/Platforms/iPhoneOS.platform/DeviceSupport/{version}"
     image_path = f"{image_dir}/DeveloperDiskImage.dmg"
     signature = f"{image_path}.signature"

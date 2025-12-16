@@ -4,8 +4,10 @@ import logging
 import math
 import struct
 import time
+from array import array
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional, Union, overload
+from typing_extensions import Self
 
 from tqdm import trange
 from usb.core import Device, USBError, find
@@ -28,11 +30,11 @@ class Mode(Enum):
     DFU_MODE = 0x1227
 
     @classmethod
-    def has_value(cls, value):
+    def has_value(cls, value: int) -> bool:
         return any(value == m.value for m in cls)
 
     @classmethod
-    def get_mode_from_value(cls, value):
+    def get_mode_from_value(cls, value: int) -> "Optional[Self]":
         """
         :rtype: Mode
         """
@@ -42,7 +44,7 @@ class Mode(Enum):
         return None
 
     @property
-    def is_recovery(self):
+    def is_recovery(self) -> bool:
         return self not in (self.WTF_MODE, self.DFU_MODE)
 
 
@@ -59,26 +61,38 @@ logger = logging.getLogger(__name__)
 
 
 class IRecv:
-    def __init__(self, ecid=None, timeout=0xFFFFFFFF, is_recovery=None):
-        self.mode: Optional[Mode] = None
+    def __init__(
+        self, ecid: Optional[int] = None, timeout: int = 0xFFFFFFFF, is_recovery: Optional[bool] = None
+    ) -> None:
+        self._mode: Optional[Mode] = None
         self._device_info = {}
         self._device: Optional[Device] = None
         self._reinit(ecid=ecid, timeout=timeout, is_recovery=is_recovery)
 
     @property
-    def ecid(self):
+    def device(self) -> Device:
+        assert self._device is not None
+        return self._device
+
+    @property
+    def mode(self) -> Mode:
+        assert self._mode is not None
+        return self._mode
+
+    @property
+    def ecid(self) -> int:
         return int(self._device_info["ECID"], 16)
 
     @property
-    def ibfl(self):
+    def ibfl(self) -> int:
         return int(self._device_info["IBFL"], 16)
 
     @property
-    def chip_id(self):
+    def chip_id(self) -> int:
         return int(self._device_info["CPID"], 16)
 
     @property
-    def board_id(self):
+    def board_id(self) -> int:
         return int(self._device_info["BDID"], 16)
 
     @property
@@ -90,7 +104,7 @@ class IRecv:
         return self._device_info["SRTG"]
 
     @property
-    def is_image4_supported(self):
+    def is_image4_supported(self) -> int:
         return self.ibfl & IBOOT_FLAG_IMAGE4_AWARE
 
     @property
@@ -101,40 +115,60 @@ class IRecv:
         raise KeyError(f"failed to find device of: board_id: {self.board_id} chip_id: {self.chip_id}")
 
     @property
-    def product_type(self):
+    def product_type(self) -> str:
         return self._irecv_device.product_type
 
     @property
-    def hardware_model(self):
+    def hardware_model(self) -> str:
         return self._irecv_device.hardware_model
 
     @property
-    def display_name(self):
+    def display_name(self) -> str:
         return self._irecv_device.display_name
 
     @property
-    def status(self):
-        return self.ctrl_transfer(0xA1, 3, data_or_wLength=b"\x00" * 6)[4]
+    def status(self) -> int:
+        return self.ctrl_transfer(0xA1, 3, data_or_wLength=6)[4]
 
-    def set_interface_altsetting(self, interface=None, alternate_setting=None):
+    def set_interface_altsetting(
+        self, interface: Optional[int] = None, alternate_setting: Optional[int] = None
+    ) -> None:
         logger.debug(f"set_interface_altsetting: {interface} {alternate_setting}")
         if interface == 1:
-            self._device.set_interface_altsetting(interface=interface, alternate_setting=alternate_setting)
+            self.device.set_interface_altsetting(interface=interface, alternate_setting=alternate_setting)
 
-    def set_configuration(self, configuration=None):
+    def set_configuration(self, configuration: Optional[int] = None) -> None:
         logger.debug(f"set_configuration: {configuration}")
         try:
-            if self._device.get_active_configuration().bConfigurationValue == configuration:
+            if self.device.get_active_configuration().bConfigurationValue == configuration:
                 return
         except USBError:
             pass
 
-        self._device.set_configuration(configuration=configuration)
+        self.device.set_configuration(configuration=configuration)
 
-    def ctrl_transfer(self, bmRequestType, bRequest, timeout=USB_TIMEOUT, **kwargs):
-        return self._device.ctrl_transfer(bmRequestType, bRequest, timeout=timeout, **kwargs)
+    @overload
+    def ctrl_transfer(
+        self, bmRequestType: int, bRequest: int, timeout: int = USB_TIMEOUT, *, data_or_wLength: int, **kwargs: Any
+    ) -> array[int]: ...
 
-    def send_buffer(self, buf: bytes):
+    @overload
+    def ctrl_transfer(
+        self,
+        bmRequestType: int,
+        bRequest: int,
+        timeout: int = USB_TIMEOUT,
+        *,
+        data_or_wLength: Optional[Union[array[int], bytes, bytearray]] = None,
+        **kwargs: Any,
+    ) -> int: ...
+
+    def ctrl_transfer(
+        self, bmRequestType: int, bRequest: int, timeout: int = USB_TIMEOUT, **kwargs: Any
+    ) -> Union[int, array[int]]:
+        return self.device.ctrl_transfer(bmRequestType, bRequest, timeout=timeout, **kwargs)
+
+    def send_buffer(self, buf: bytes) -> None:
         packet_size = IRECV_TRANSFER_SIZE_RECOVERY if self.mode.is_recovery else IRECV_TRANSFER_SIZE_DFU
 
         # initiate transfer
@@ -164,7 +198,7 @@ class IRecv:
             packet_index = _offset // packet_size
 
             if self.mode.is_recovery:
-                n = self._device.write(0x04, chunk, timeout=USB_TIMEOUT)
+                n = self.device.write(0x04, chunk, timeout=USB_TIMEOUT)
                 if n != len(chunk):
                     raise OSError("failed to upload data")
             else:
@@ -202,38 +236,40 @@ class IRecv:
 
             self.reset()
 
-    def reset(self):
+    def reset(self) -> None:
         try:
             logger.debug("resetting usb device")
             logger.info("If the restore hangs here, disconnect & reconnect the device")
-            self._device.reset()
+            self.device.reset()
         except USBError:
             pass
 
         self._reinit(ecid=self.ecid)
 
-    def send_command(self, cmd: str, timeout=USB_TIMEOUT, b_request=0):
-        self._device.ctrl_transfer(0x40, b_request, 0, 0, cmd.encode() + b"\0", timeout=timeout)
+    def send_command(self, cmd: str, timeout: int = USB_TIMEOUT, b_request: int = 0) -> None:
+        self.device.ctrl_transfer(0x40, b_request, 0, 0, cmd.encode() + b"\0", timeout=timeout)
 
-    def getenv(self, name):
+    def getenv(self, name: str) -> Optional[bytearray]:
         try:
             self.send_command(f"getenv {name}")
         except USBError:
             return None
-        return bytearray(self._device.ctrl_transfer(0xC0, 0, 0, 0, 255))
+        return bytearray(self.device.ctrl_transfer(0xC0, 0, 0, 0, 255))
 
-    def set_autoboot(self, enable: bool):
+    def set_autoboot(self, enable: bool) -> None:
         self.send_command(f"setenv auto-boot {str(enable).lower()}")
         self.send_command("saveenv")
 
-    def reboot(self):
+    def reboot(self) -> None:
         with contextlib.suppress(USBError):
             self.send_command("reboot")
 
-    def _reinit(self, ecid=None, timeout=0xFFFFFFFF, is_recovery=None):
+    def _reinit(
+        self, ecid: Optional[int] = None, timeout: int = 0xFFFFFFFF, is_recovery: Optional[bool] = None
+    ) -> None:
         self._device = None
         self._device_info = {}
-        self.mode = None
+        self._mode = None
         self._find(ecid=ecid, timeout=timeout, is_recovery=is_recovery)
         if self._device is None:
             raise IRecvNoDeviceConnectedError("Failed to find a connected iDevice")
@@ -251,13 +287,13 @@ class IRecv:
         else:
             self.set_interface_altsetting(0, 0)
 
-    def _copy_nonce_with_tag(self, tag):
+    def _copy_nonce_with_tag(self, tag: str) -> Optional[bytes]:
         if tag in get_string(self._device, 1):
             return binascii.unhexlify(get_string(self._device, 1).split(f"{tag}:")[1].split(" ")[0])
         else:
             return None
 
-    def _find(self, ecid=None, timeout=0xFFFFFFFF, is_recovery=None):
+    def _find(self, ecid: Optional[int] = None, timeout: int = 0xFFFFFFFF, is_recovery: Optional[bool] = None) -> None:
         start = time.time()
         end = start + timeout
         while (self._device is None) and (time.time() < end):
@@ -279,7 +315,7 @@ class IRecv:
                     if self._device is not None:
                         raise IRecvError("More then one connected device was found connected in recovery mode")
                     self._device = device
-                    self.mode = mode
+                    self._mode = mode
                     self._populate_device_info()
 
                     if ecid is not None:
@@ -291,25 +327,25 @@ class IRecv:
                 except ValueError:
                     continue
 
-    def _populate_device_info(self):
-        for component in self._device.serial_number.split(" "):
+    def _populate_device_info(self) -> None:
+        for component in self.device.serial_number.split(" "):
             k, v = component.split(":")
             if k in ("SRNM", "SRTG") and "[" in v:
                 # trim the `[]`
                 v = v[1:-1]
             self._device_info[k] = v
 
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self._device_info)
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        del self._device
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # noqa: ANN001
+        self._device = None
 
 
-def main():
+def main() -> None:
     print(IRecv())
 
 

@@ -13,7 +13,7 @@ class HouseArrestService(AfcService):
     SERVICE_NAME = "com.apple.mobile.house_arrest"
     RSD_SERVICE_NAME = "com.apple.mobile.house_arrest.shim.remote"
 
-    def __init__(self, lockdown: LockdownServiceProvider, bundle_id: str, documents_only: bool = False):
+    def __init__(self, lockdown: LockdownServiceProvider, bundle_id: str, documents_only: bool = False) -> None:
         if isinstance(lockdown, LockdownClient):
             super().__init__(lockdown, self.SERVICE_NAME)
         else:

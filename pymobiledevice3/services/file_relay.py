@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pymobiledevice3.lockdown import LockdownClient
 from pymobiledevice3.services.lockdown_service import LockdownService
 
@@ -25,30 +27,24 @@ WirelessAutomation"""
 class FileRelayService(LockdownService):
     SERVICE_NAME = "com.apple.mobile.file_relay"
 
-    def __init__(self, lockdown: LockdownClient):
+    def __init__(self, lockdown: LockdownClient) -> None:
         super().__init__(lockdown, self.SERVICE_NAME)
         self.packet_num = 0
 
-    def stop_session(self):
+    def stop_session(self) -> None:
         self.logger.info("Disconecting...")
         self.service.close()
 
-    def request_sources(self, sources=None):
+    def request_sources(self, sources: Optional[list[str]] = None) -> Optional[bytes]:
         if sources is None:
             sources = ["UserDatabases"]
         self.service.send_plist({"Sources": sources})
-        while 1:
+        while True:
             res = self.service.recv_plist()
             if res:
-                s = res.get("Status")
-                if s == "Acknowledged":
-                    z = ""
-                    while True:
-                        x = self.service.recv()
-                        if not x:
-                            break
-                        z += x
-                    return z
+                status = res.get("Status")
+                if status == "Acknowledged":
+                    return b"".join(iter(self.service.recv, b""))
                 else:
                     print(res.get("Error"))
                     break

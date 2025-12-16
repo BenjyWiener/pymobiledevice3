@@ -8,7 +8,7 @@ from uuid import uuid4
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.serialization import Encoding
-from cryptography.hazmat.primitives.serialization.pkcs7 import PKCS7SignatureBuilder
+from cryptography.hazmat.primitives.serialization.pkcs7 import PKCS7PrivateKeyTypes, PKCS7SignatureBuilder
 
 from pymobiledevice3.exceptions import CloudConfigurationAlreadyPresentError, ProfileError
 from pymobiledevice3.lockdown import LockdownClient
@@ -47,10 +47,10 @@ class MobileConfigService(LockdownService):
         :param keybag_file: Certificate file in PEM format, containing certificate and private key.
         :return: None
         """
-        with open(keybag_file, "rb") as keybag_file:
-            keybag_file = keybag_file.read()
-        private_key = serialization.load_pem_private_key(keybag_file, password=None)
-        cer = x509.load_pem_x509_certificate(keybag_file)
+        keybag_bytes = keybag_file.read_bytes()
+        private_key = serialization.load_pem_private_key(keybag_bytes, password=None)
+        assert isinstance(private_key, PKCS7PrivateKeyTypes)
+        cer = x509.load_pem_x509_certificate(keybag_bytes)
         public_key = cer.public_bytes(Encoding.DER)
         escalate_response = self._send_recv({"RequestType": "Escalate", "SupervisorCertificate": public_key})
         signed_challenge = (
@@ -69,7 +69,7 @@ class MobileConfigService(LockdownService):
         self._send_recv({"RequestType": "StoreProfile", "ProfileData": profile_data, "Purpose": purpose.value})
 
     def get_cloud_configuration(self) -> dict:
-        return self._send_recv({"RequestType": "GetCloudConfiguration"}).get("CloudConfiguration")
+        return self._send_recv({"RequestType": "GetCloudConfiguration"})["CloudConfiguration"]
 
     def set_cloud_configuration(self, cloud_configuration: dict) -> None:
         self._send_recv({"RequestType": "SetCloudConfiguration", "CloudConfiguration": cloud_configuration})

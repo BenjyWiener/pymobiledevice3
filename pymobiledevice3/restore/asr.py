@@ -3,7 +3,7 @@ import hashlib
 import logging
 import os
 import plistlib
-import typing
+from typing import IO, Optional, cast
 
 from tqdm import trange
 
@@ -29,8 +29,10 @@ class ASRClient:
 
     def __init__(self, udid: str) -> None:
         self._udid: str = udid
-        self.logger = logging.getLogger(f"{asyncio.current_task().get_name()}-{__name__}")
-        self.service: typing.Optional[ServiceConnection] = None
+        self.logger: logging.Logger = logging.getLogger(
+            f"{cast(asyncio.Task, asyncio.current_task()).get_name()}-{__name__}"
+        )
+        self.service: Optional[ServiceConnection] = None
         self.checksum_chunks: bool = False
 
     async def connect(self, port: int = DEFAULT_ASR_SYNC_PORT) -> None:
@@ -49,6 +51,7 @@ class ASRClient:
         self.logger.debug(f"Checksum Chunks: {self.checksum_chunks}")
 
     async def recv_plist(self) -> dict:
+        assert self.service is not None
         buf = b""
         while not buf.endswith(b"</plist>\n"):
             buf += await self.service.aio_recvall(1)
@@ -59,9 +62,10 @@ class ASRClient:
         await self.send_buffer(plistlib.dumps(plist))
 
     async def send_buffer(self, buf: bytes) -> None:
+        assert self.service is not None
         await self.service.aio_sendall(buf)
 
-    async def handle_oob_data_request(self, packet: dict, filesystem: typing.IO):
+    async def handle_oob_data_request(self, packet: dict, filesystem: IO) -> None:
         oob_length = packet["OOB Length"]
         oob_offset = packet["OOB Offset"]
         filesystem.seek(oob_offset, os.SEEK_SET)
@@ -71,7 +75,7 @@ class ASRClient:
 
         await self.send_buffer(oob_data)
 
-    async def perform_validation(self, filesystem: typing.IO) -> None:
+    async def perform_validation(self, filesystem: IO) -> None:
         filesystem.seek(0, os.SEEK_END)
         length = filesystem.tell()
         filesystem.seek(0, os.SEEK_SET)
@@ -108,7 +112,7 @@ class ASRClient:
             else:
                 raise PyMobileDevice3Exception(f"unknown packet: {packet}")
 
-    async def send_payload(self, filesystem: typing.IO) -> None:
+    async def send_payload(self, filesystem: IO) -> None:
         filesystem.seek(0, os.SEEK_END)
         length = filesystem.tell()
         filesystem.seek(0, os.SEEK_SET)
@@ -122,4 +126,5 @@ class ASRClient:
             await self.send_buffer(chunk)
 
     async def close(self) -> None:
-        await self.service.aio_close()
+        if self.service is not None:
+            await self.service.aio_close()

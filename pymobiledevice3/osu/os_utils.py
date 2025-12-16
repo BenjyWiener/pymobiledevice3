@@ -1,8 +1,11 @@
-import inspect
 import socket
 import sys
+from collections.abc import Callable
 from datetime import datetime
+from functools import wraps
 from pathlib import Path
+from typing import TypeVar, Union
+from typing_extensions import Concatenate, ParamSpec
 
 from pymobiledevice3.exceptions import FeatureNotSupportedError, OSNotSupportedError
 
@@ -20,78 +23,88 @@ def is_wsl() -> bool:
         return False
 
 
+_P = ParamSpec("_P")
+_T = TypeVar("_T")
+
+
+def _default_unsupported(f: "Callable[Concatenate[OsUtils, _P], _T]") -> "Callable[Concatenate[OsUtils, _P], _T]":
+    @wraps(f)
+    def wrapper(self: OsUtils, *args: _P.args, **kwargs: _P.kwargs) -> _T:
+        raise FeatureNotSupportedError(sys.platform, f.__name__)
+
+    return wrapper
+
+
 class OsUtils:
     _instance = None
-    _os_name = None
 
     @classmethod
     def create(cls) -> "OsUtils":
         if cls._instance is None:
-            cls._os_name = sys.platform
-            if cls._os_name == "win32":
+            if sys.platform == "win32":
                 from pymobiledevice3.osu.win_util import Win32
 
                 cls._instance = Win32()
-            elif cls._os_name == "darwin":
+            elif sys.platform == "darwin":
                 from pymobiledevice3.osu.posix_util import Darwin
 
                 cls._instance = Darwin()
-            elif cls._os_name == "linux":
+            elif sys.platform == "linux":
                 from pymobiledevice3.osu.posix_util import Linux, Wsl
 
                 cls._instance = Wsl() if is_wsl() else Linux()
-            elif cls._os_name == "cygwin":
+            elif sys.platform == "cygwin":
                 from pymobiledevice3.osu.posix_util import Cygwin
 
                 cls._instance = Cygwin()
             else:
-                raise OSNotSupportedError(cls._os_name)
+                raise OSNotSupportedError(sys.platform)
         return cls._instance
 
     @property
-    def is_admin(self) -> bool:
-        raise FeatureNotSupportedError(self._os_name, inspect.currentframe().f_code.co_name)
+    @_default_unsupported
+    def is_admin(self) -> bool: ...
 
     @property
-    def usbmux_address(self) -> tuple[str, int]:
-        raise FeatureNotSupportedError(self._os_name, inspect.currentframe().f_code.co_name)
+    @_default_unsupported
+    def usbmux_address(self) -> tuple[Union[tuple, str], socket.AddressFamily]: ...
 
     @property
-    def bonjour_timeout(self) -> int:
-        raise FeatureNotSupportedError(self._os_name, inspect.currentframe().f_code.co_name)
+    @_default_unsupported
+    def bonjour_timeout(self) -> int: ...
 
     @property
-    def loopback_header(self) -> bytes:
-        raise FeatureNotSupportedError(self._os_name, inspect.currentframe().f_code.co_name)
+    @_default_unsupported
+    def loopback_header(self) -> bytes: ...
 
     @property
-    def access_denied_error(self) -> str:
-        raise FeatureNotSupportedError(self._os_name, inspect.currentframe().f_code.co_name)
+    @_default_unsupported
+    def access_denied_error(self) -> str: ...
 
     @property
-    def pair_record_path(self) -> Path:
-        raise FeatureNotSupportedError(self._os_name, inspect.currentframe().f_code.co_name)
+    @_default_unsupported
+    def pair_record_path(self) -> Path: ...
 
-    def get_ipv6_ips(self) -> list[str]:
-        raise FeatureNotSupportedError(self._os_name, inspect.currentframe().f_code.co_name)
+    @_default_unsupported
+    def get_ipv6_ips(self) -> list[str]: ...
 
+    @_default_unsupported
     def set_keepalive(
         self,
         sock: socket.socket,
         after_idle_sec: int = DEFAULT_AFTER_IDLE_SEC,
         interval_sec: int = DEFAULT_INTERVAL_SEC,
         max_fails: int = DEFAULT_MAX_FAILS,
-    ) -> None:
-        raise FeatureNotSupportedError(self._os_name, inspect.currentframe().f_code.co_name)
+    ) -> None: ...
 
-    def parse_timestamp(self, time_stamp) -> datetime:
-        raise FeatureNotSupportedError(self._os_name, inspect.currentframe().f_code.co_name)
+    @_default_unsupported
+    def parse_timestamp(self, time_stamp: float) -> datetime: ...
 
-    def chown_to_non_sudo_if_needed(self, path: Path) -> None:
-        raise FeatureNotSupportedError(self._os_name, inspect.currentframe().f_code.co_name)
+    @_default_unsupported
+    def chown_to_non_sudo_if_needed(self, path: Path) -> None: ...
 
-    def wait_return(self):
-        raise FeatureNotSupportedError(self._os_name, inspect.currentframe().f_code.co_name)
+    @_default_unsupported
+    def wait_return(self) -> None: ...
 
     def get_homedir(self) -> Path:
         return Path.home()

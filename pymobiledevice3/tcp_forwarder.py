@@ -19,7 +19,7 @@ class TcpForwarderBase:
     MAX_FORWARDED_CONNECTIONS = 200
     TIMEOUT = 1
 
-    def __init__(self, src_port: int, listening_event: Optional[threading.Event] = None):
+    def __init__(self, src_port: int, listening_event: Optional[threading.Event] = None) -> None:
         """
         Initialize a new tcp forwarder
 
@@ -27,18 +27,18 @@ class TcpForwarderBase:
         :param enable_ssl: enable ssl wrapping for the transferred data
         :param listening_event: event to fire when the listening occurred
         """
-        self.logger = logging.getLogger(__name__)
-        self.src_port = src_port
-        self.server_socket = None
-        self.inputs = []
-        self.stopped = threading.Event()
-        self.listening_event = listening_event
+        self.logger: logging.Logger = logging.getLogger(__name__)
+        self.src_port: int = src_port
+        self.server_socket: Optional[socket.socket] = None
+        self.inputs: list[socket.socket] = []
+        self.stopped: threading.Event = threading.Event()
+        self.listening_event: Optional[threading.Event] = listening_event
 
         # dictionaries containing the required maps to transfer data between each local
         # socket to its remote socket and vice versa
-        self.connections = {}
+        self.connections: dict[socket.socket, socket.socket] = {}
 
-    def start(self, address="0.0.0.0"):
+    def start(self, address: str = "0.0.0.0") -> None:
         """forward each connection from given local machine port to remote device port"""
         # create local tcp server socket
         self.server_socket = socket.socket()
@@ -84,7 +84,7 @@ class TcpForwarderBase:
             for current_sock in self.inputs:
                 current_sock.close()
 
-    def _handle_close_or_error(self, from_sock):
+    def _handle_close_or_error(self, from_sock: socket.socket) -> None:
         """if an error occurred its time to close the two sockets"""
         other_sock = self.connections[from_sock]
 
@@ -95,7 +95,7 @@ class TcpForwarderBase:
 
         self.logger.info(f"connection {other_sock} was closed")
 
-    def _handle_data(self, from_sock, closed_sockets):
+    def _handle_data(self, from_sock: socket.socket, closed_sockets: set[socket.socket]) -> None:
         self.logger.debug(f"Handling data from {from_sock}")
         try:
             data = from_sock.recv(1024)
@@ -137,15 +137,16 @@ class TcpForwarderBase:
     def _establish_remote_connection(self) -> socket.socket:
         pass
 
-    def _handle_server_connection(self):
+    def _handle_server_connection(self) -> None:
         """accept the connection from local machine and attempt to connect at remote"""
+        assert self.server_socket is not None
         local_connection, _client_address = self.server_socket.accept()
         local_connection.setblocking(False)
 
         try:
             remote_connection = self._establish_remote_connection()
-        except ConnectionFailedError:
-            self.logger.error(f"failed to connect to port: {self.dst_port}")
+        except ConnectionFailedError as e:
+            self.logger.error(e)
             local_connection.close()
             return
 
@@ -161,7 +162,7 @@ class TcpForwarderBase:
 
         self.logger.info("connection established from local to remote")
 
-    def stop(self):
+    def stop(self) -> None:
         """stop forwarding"""
         self.stopped.set()
 
@@ -179,7 +180,7 @@ class UsbmuxTcpForwarder(TcpForwarderBase):
         listening_event: Optional[threading.Event] = None,
         usbmux_connection_type: Optional[str] = None,
         usbmux_address: Optional[str] = None,
-    ):
+    ) -> None:
         """
         Initialize a new tcp forwarder
 
@@ -191,10 +192,10 @@ class UsbmuxTcpForwarder(TcpForwarderBase):
         :param usbmux_address: usbmuxd address
         """
         super().__init__(src_port, listening_event)
-        self.serial = serial
-        self.dst_port = dst_port
-        self.usbmux_connection_type = usbmux_connection_type
-        self.usbmux_address = usbmux_address
+        self.serial: str = serial
+        self.dst_port: int = dst_port
+        self.usbmux_connection_type: Optional[str] = usbmux_connection_type
+        self.usbmux_address: Optional[str] = usbmux_address
 
     def _establish_remote_connection(self) -> socket.socket:
         # connect directly using usbmuxd
@@ -203,7 +204,7 @@ class UsbmuxTcpForwarder(TcpForwarderBase):
         )
         self.logger.debug("Selected device: %r", mux_device)
         if mux_device is None:
-            raise ConnectionFailedError()
+            raise ConnectionFailedError(f"failed to connect to port: {self.dst_port}")
         return mux_device.connect(self.dst_port, usbmux_address=self.usbmux_address)
 
 
@@ -218,7 +219,7 @@ class LockdownTcpForwarder(TcpForwarderBase):
         src_port: int,
         service_name: str,
         listening_event: Optional[threading.Event] = None,
-    ):
+    ) -> None:
         """
         Initialize a new tcp forwarder
 
@@ -227,8 +228,8 @@ class LockdownTcpForwarder(TcpForwarderBase):
         :param listening_event: event to fire when the listening occurred
         """
         super().__init__(src_port, listening_event)
-        self.service_provider = service_provider
-        self.service_name = service_name
+        self.service_provider: LockdownServiceProvider = service_provider
+        self.service_name: str = service_name
 
     def _establish_remote_connection(self) -> socket.socket:
         return self.service_provider.start_lockdown_developer_service(self.service_name).socket

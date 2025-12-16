@@ -4,16 +4,20 @@ import io
 import os
 import plistlib
 import uuid
+from collections.abc import Iterator
 from functools import partial
 from pprint import pprint
 from queue import Empty, Queue
-from typing import ClassVar, Optional
+from ssl import SSLSocket
+from typing import TYPE_CHECKING, ClassVar, NoReturn, Optional, Protocol, cast
+from typing_extensions import Self
 
 import IPython
 from bpylist2 import archiver
 from construct import (
     Adapter,
     Const,
+    Container,
     Default,
     GreedyBytes,
     GreedyRange,
@@ -32,6 +36,9 @@ from pygments import formatters, highlight, lexers
 from pymobiledevice3.exceptions import DvtException, UnrecognizedSelectorError
 from pymobiledevice3.lockdown_service_provider import LockdownServiceProvider
 from pymobiledevice3.services.lockdown_service import LockdownService
+
+if TYPE_CHECKING:
+    from construct_typed import Context
 
 SHELL_USAGE = """
 # This shell allows you to send messages to the DVTSecureSocketProxy and receive answers easily.
@@ -65,10 +72,10 @@ return_value, auxiliary = developer.recv_plist()
 
 
 class BplitAdapter(Adapter):
-    def _decode(self, obj, context, path):
+    def _decode(self, obj: bytes, context: "Context", path: str) -> object:
         return archiver.unarchive(obj)
 
-    def _encode(self, obj, context, path):
+    def _encode(self, obj: object, context: "Context", path: str) -> bytes:
         return archiver.archive(obj)
 
 
@@ -110,44 +117,44 @@ dtx_message_payload_header_struct = Struct(
 
 
 class MessageAux:
-    def __init__(self):
+    def __init__(self) -> None:
         self.values = []
 
-    def append_int(self, value: int):
+    def append_int(self, value: int) -> Self:
         self.values.append({"type": 3, "value": value})
         return self
 
-    def append_long(self, value: int):
+    def append_long(self, value: int) -> Self:
         self.values.append({"type": 6, "value": value})
         return self
 
-    def append_obj(self, value):
+    def append_obj(self, value: object) -> Self:
         self.values.append({"type": 2, "value": value})
         return self
 
-    def __bytes__(self):
+    def __bytes__(self) -> bytes:
         return message_aux_t_struct.build({"aux": self.values})
 
 
 class DTTapMessage:
     @staticmethod
-    def decode_archive(archive_obj):
+    def decode_archive(archive_obj: archiver.ArchivedObject) -> object:
         return archive_obj.decode("DTTapMessagePlist")
 
 
 class NSNull:
     @staticmethod
-    def decode_archive(archive_obj):
+    def decode_archive(archive_obj: archiver.ArchivedObject) -> object:
         return None
 
 
 class NSError:
     @staticmethod
-    def encode_archive(archive_obj):
+    def encode_archive(archive_obj: object) -> bytes:
         return archiver.archive(archive_obj)
 
     @staticmethod
-    def decode_archive(archive_obj):
+    def decode_archive(archive_obj: archiver.ArchivedObject) -> NoReturn:
         user_info = archive_obj.decode("NSUserInfo")
         if user_info.get("NSLocalizedDescription", "").endswith(" - it does not respond to the selector"):
             raise UnrecognizedSelectorError(user_info)
@@ -156,47 +163,47 @@ class NSError:
 
 class NSUUID(uuid.UUID):
     @staticmethod
-    def uuid4():
+    def uuid4() -> "NSUUID":
         """Generate a random UUID."""
         return NSUUID(bytes=os.urandom(16))
 
-    def encode_archive(self, archive_obj: archiver.ArchivingObject):
+    def encode_archive(self, archive_obj: archiver.ArchivingObject) -> None:
         archive_obj.encode("NS.uuidbytes", self.bytes)
 
     @staticmethod
-    def decode_archive(archive_obj: archiver.ArchivedObject):
+    def decode_archive(archive_obj: archiver.ArchivedObject) -> "NSUUID":
         return NSUUID(bytes=archive_obj.decode("NS.uuidbytes"))
 
 
 class NSURL:
-    def __init__(self, base, relative):
-        self.base = base
-        self.relative = relative
+    def __init__(self, base: "Optional[NSURL]", relative: str) -> None:
+        self.base: Optional[NSURL] = base
+        self.relative: str = relative
 
-    def encode_archive(self, archive_obj: archiver.ArchivingObject):
+    def encode_archive(self, archive_obj: archiver.ArchivingObject) -> None:
         archive_obj.encode("NS.base", self.base)
         archive_obj.encode("NS.relative", self.relative)
 
     @staticmethod
-    def decode_archive(archive_obj: archiver.ArchivedObject):
+    def decode_archive(archive_obj: archiver.ArchivedObject) -> "NSURL":
         return NSURL(archive_obj.decode("NS.base"), archive_obj.decode("NS.relative"))
 
 
 class NSValue:
     @staticmethod
-    def decode_archive(archive_obj: archiver.ArchivedObject):
+    def decode_archive(archive_obj: archiver.ArchivedObject) -> object:
         return archive_obj.decode("NS.rectval")
 
 
 class NSMutableData:
     @staticmethod
-    def decode_archive(archive_obj: archiver.ArchivedObject):
+    def decode_archive(archive_obj: archiver.ArchivedObject) -> object:
         return archive_obj.decode("NS.data")
 
 
 class NSMutableString:
     @staticmethod
-    def decode_archive(archive_obj: archiver.ArchivedObject):
+    def decode_archive(archive_obj: archiver.ArchivedObject) -> object:
         return archive_obj.decode("NS.string")
 
 
@@ -237,18 +244,18 @@ class XCTestConfiguration:
         "userAttachmentLifetime": 1,
     }
 
-    def __init__(self, kv: dict):
+    def __init__(self, kv: dict) -> None:
         assert "testBundleURL" in kv
         assert "sessionIdentifier" in kv
         self._config = copy.deepcopy(self._default)
         self._config.update(kv)
 
-    def encode_archive(self, archive_obj: archiver.ArchivingObject):
+    def encode_archive(self, archive_obj: archiver.ArchivingObject) -> None:
         for k, v in self._config.items():
             archive_obj.encode(k, v)
 
     @staticmethod
-    def decode_archive(archive_obj: archiver.ArchivedObject):
+    def decode_archive(archive_obj: archiver.ArchivedObject) -> object:
         return archive_obj.object
 
 
@@ -272,50 +279,56 @@ archiver.update_class_map({
 archiver.Archive.inline_types = list({*archiver.Archive.inline_types, bytes})
 
 
+class _BoundSelector(Protocol):
+    def __call__(self, args: Optional[MessageAux] = None, expects_reply: bool = True) -> None: ...
+
+
 class Channel(int):
+    _service: "RemoteServer"
+
     @classmethod
-    def create(cls, value: int, service: "RemoteServer"):
+    def create(cls, value: int, service: "RemoteServer") -> Self:
         channel = cls(value)
         channel._service = service
         return channel
 
-    def receive_key_value(self):
+    def receive_key_value(self) -> tuple[object, object]:
         return self._service.recv_plist(self)
 
-    def receive_plist(self):
+    def receive_plist(self) -> object:
         return self._service.recv_plist(self)[0]
 
-    def receive_message(self):
+    def receive_message(self) -> Optional[bytes]:
         return self._service.recv_message(self)[0]
 
-    def send_message(self, selector: str, args: MessageAux = None, expects_reply: bool = True):
+    def send_message(self, selector: str, args: Optional[MessageAux] = None, expects_reply: bool = True) -> None:
         self._service.send_message(self, selector, args, expects_reply=expects_reply)
 
     @staticmethod
-    def _sanitize_name(name: str):
+    def _sanitize_name(name: str) -> str:
         """
         Sanitize python name to ObjectiveC name.
         """
         name = "_" + name[1:].replace("_", ":") if name.startswith("_") else name.replace("_", ":")
         return name
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: Optional[str]) -> _BoundSelector:
         return partial(self._service.send_message, self, item)
 
-    def __getattr__(self, item):
+    def __getattr__(self, item: str) -> _BoundSelector:
         return self[self._sanitize_name(item)]
 
 
 class ChannelFragmenter:
-    def __init__(self):
-        self._messages = Queue()
-        self._packet_data = b""
-        self._stream_packet_data = b""
+    def __init__(self) -> None:
+        self._messages: Queue[bytes] = Queue()
+        self._packet_data: bytes = b""
+        self._stream_packet_data: bytes = b""
 
-    def get(self):
+    def get(self) -> bytes:
         return self._messages.get_nowait()
 
-    def add_fragment(self, mheader, chunk):
+    def add_fragment(self, mheader: Container, chunk: bytes) -> None:
         if mheader.channelCode >= 0:
             self._packet_data += chunk
             if mheader.fragmentId == mheader.fragmentCount - 1:
@@ -383,23 +396,23 @@ class RemoteServer(LockdownService):
     def __init__(
         self,
         lockdown: LockdownServiceProvider,
-        service_name,
+        service_name: str,
         remove_ssl_context: bool = True,
         is_developer_service: bool = True,
-    ):
+    ) -> None:
         super().__init__(lockdown, service_name, is_developer_service=is_developer_service)
 
-        if remove_ssl_context and hasattr(self.service.socket, "_sslobj"):
-            self.service.socket._sslobj = None
+        if remove_ssl_context and isinstance(self.service.socket, SSLSocket):
+            self.service.socket = self.service.socket.unwrap()
 
         self.supported_identifiers = {}
         self.last_channel_code = 0
         self.cur_message = 0
         self.channel_cache = {}
-        self.channel_messages = {self.BROADCAST_CHANNEL: ChannelFragmenter()}
-        self.broadcast = Channel.create(0, self)
+        self.channel_messages: dict[int, ChannelFragmenter] = {self.BROADCAST_CHANNEL: ChannelFragmenter()}
+        self.broadcast: Channel = Channel.create(0, self)
 
-    def shell(self):
+    def shell(self) -> None:
         IPython.embed(
             header=highlight(SHELL_USAGE, lexers.PythonLexer(), formatters.Terminal256Formatter(style="native")),
             user_ns={
@@ -409,18 +422,18 @@ class RemoteServer(LockdownService):
             },
         )
 
-    def perform_handshake(self):
+    def perform_handshake(self) -> None:
         args = MessageAux()
         args.append_obj({"com.apple.private.DTXBlockCompression": 0, "com.apple.private.DTXConnection": 1})
         self.send_message(0, "_notifyOfPublishedCapabilities:", args, expects_reply=False)
         ret, aux = self.recv_plist()
         if ret != "_notifyOfPublishedCapabilities:":
             raise ValueError("Invalid answer")
-        if not len(aux[0]):
+        if not (aux and len(aux[0])):
             raise ValueError("Invalid answer")
         self.supported_identifiers = aux[0].value
 
-    def make_channel(self, identifier) -> Channel:
+    def make_channel(self, identifier: str) -> Channel:
         # NOTE: There is also identifier not in self.supported_identifiers
         # assert identifier in self.supported_identifiers
         if identifier in self.channel_cache:
@@ -438,8 +451,12 @@ class RemoteServer(LockdownService):
         return channel
 
     def send_message(
-        self, channel: int, selector: Optional[str] = None, args: MessageAux = None, expects_reply: bool = True
-    ):
+        self,
+        channel: int,
+        selector: Optional[str] = None,
+        args: Optional[MessageAux] = None,
+        expects_reply: bool = True,
+    ) -> None:
         self.cur_message += 1
 
         aux = bytes(args) if args is not None else b""
@@ -465,7 +482,7 @@ class RemoteServer(LockdownService):
         msg = mheader + pheader + aux + sel
         self.service.sendall(msg)
 
-    def recv_plist(self, channel: int = BROADCAST_CHANNEL):
+    def recv_plist(self, channel: int = BROADCAST_CHANNEL) -> tuple[Optional[object], Optional[list[Container]]]:
         data, aux = self.recv_message(channel)
         if data is not None:
             try:
@@ -477,7 +494,7 @@ class RemoteServer(LockdownService):
                 self.logger.warning(f"got an invalid plist: {data[:40]}")
         return data, aux
 
-    def recv_message(self, channel: int = BROADCAST_CHANNEL):
+    def recv_message(self, channel: int = BROADCAST_CHANNEL) -> tuple[Optional[bytes], Optional[list[Container]]]:
         packet_stream = self._recv_packet_fragments(channel)
         pheader = dtx_message_payload_header_struct.parse_stream(packet_stream)
 
@@ -490,7 +507,7 @@ class RemoteServer(LockdownService):
         data = packet_stream.read(obj_size) if obj_size else None
         return data, aux
 
-    def _recv_packet_fragments(self, channel: int = BROADCAST_CHANNEL):
+    def _recv_packet_fragments(self, channel: int = BROADCAST_CHANNEL) -> io.BytesIO:
         while True:
             try:
                 # if we already have a message for this channel, just return it
@@ -518,11 +535,11 @@ class RemoteServer(LockdownService):
 
                 self.channel_messages[received_channel_code].add_fragment(mheader, self.service.recvall(mheader.length))
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         self.perform_handshake()
         return self
 
-    def close(self):
+    def close(self) -> None:
         aux = MessageAux()
         codes = [code for code in self.channel_messages if code > 0]
         if codes:
@@ -536,24 +553,29 @@ class RemoteServer(LockdownService):
 
 
 class Tap:
-    def __init__(self, dvt, channel_name: str, config: dict):
-        self._dvt = dvt
-        self._channel_name = channel_name
-        self._config = config
-        self.channel = None
+    def __init__(self, dvt: RemoteServer, channel_name: str, config: dict) -> None:
+        self._dvt: RemoteServer = dvt
+        self._channel_name: str = channel_name
+        self._config: dict = config
+        self._channel: Optional[Channel] = None
 
-    def __enter__(self):
-        self.channel = self._dvt.make_channel(self._channel_name)
-        self.channel.setConfig_(MessageAux().append_obj(self._config), expects_reply=False)
-        self.channel.start(expects_reply=False)
+    @property
+    def channel(self) -> Channel:
+        assert self._channel is not None
+        return self._channel
+
+    def __enter__(self) -> Self:
+        self._channel = self._dvt.make_channel(self._channel_name)
+        self._channel.setConfig_(MessageAux().append_obj(self._config), expects_reply=False)
+        self._channel.start(expects_reply=False)
 
         # first message is just kind of an ack
-        self.channel.receive_plist()
+        self._channel.receive_plist()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # noqa: ANN001
         self.channel.clear(expects_reply=False)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[object]:
         while True:
-            yield from self.channel.receive_plist()
+            yield from cast(list, self.channel.receive_plist())

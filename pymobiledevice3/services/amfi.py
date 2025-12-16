@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import logging
 
 from pymobiledevice3.exceptions import (

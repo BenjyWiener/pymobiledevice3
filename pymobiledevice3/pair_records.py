@@ -33,7 +33,7 @@ def generate_host_id(hostname: Optional[str] = None) -> str:
     return str(host_id).upper()
 
 
-def get_usbmux_pairing_record(identifier: str, usbmux_address: Optional[str] = None):
+def get_usbmux_pairing_record(identifier: str, usbmux_address: Optional[str] = None) -> Optional[dict]:
     """
     Retrieve the pairing record from usbmuxd.
 
@@ -91,7 +91,7 @@ def get_local_pairing_record(identifier: str, pairing_records_cache_folder: Path
 
 def get_preferred_pair_record(
     identifier: str, pairing_records_cache_folder: Path, usbmux_address: Optional[str] = None
-) -> dict:
+) -> Optional[dict]:
     """
     Look for an existing pair record for the connected device in the following order:
     - usbmuxd

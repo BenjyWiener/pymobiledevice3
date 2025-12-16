@@ -1,3 +1,6 @@
+from collections.abc import Generator
+from typing import NoReturn, Union
+
 from pymobiledevice3.lockdown import LockdownClient
 from pymobiledevice3.lockdown_service_provider import LockdownServiceProvider
 from pymobiledevice3.services.lockdown_service import LockdownService
@@ -16,13 +19,13 @@ class SyslogService(LockdownService):
     SERVICE_NAME = "com.apple.syslog_relay"
     RSD_SERVICE_NAME = "com.apple.syslog_relay.shim.remote"
 
-    def __init__(self, service_provider: LockdownServiceProvider):
+    def __init__(self, service_provider: LockdownServiceProvider) -> None:
         if isinstance(service_provider, LockdownClient):
             super().__init__(service_provider, self.SERVICE_NAME)
         else:
             super().__init__(service_provider, self.RSD_SERVICE_NAME)
 
-    def watch(self):
+    def watch(self) -> Generator[Union[str, bytes], None, NoReturn]:
         buf = b""
         while True:
             # read in chunks till we have at least one syslog line

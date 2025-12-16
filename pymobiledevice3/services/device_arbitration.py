@@ -6,14 +6,14 @@ from pymobiledevice3.services.lockdown_service import LockdownService
 class DtDeviceArbitration(LockdownService):
     SERVICE_NAME = "com.apple.dt.devicearbitration"
 
-    def __init__(self, lockdown: LockdownClient):
+    def __init__(self, lockdown: LockdownClient) -> None:
         super().__init__(lockdown, self.SERVICE_NAME, is_developer_service=True)
 
     @property
     def version(self) -> dict:
         return self.service.send_recv_plist({"command": "version"})
 
-    def check_in(self, hostname: str, force: bool = False):
+    def check_in(self, hostname: str, force: bool = False) -> None:
         request = {"command": "check-in", "hostname": hostname}
         if force:
             request["command"] = "force-check-in"
@@ -21,7 +21,7 @@ class DtDeviceArbitration(LockdownService):
         if response.get("result") != "success":
             raise DeviceAlreadyInUseError(response)
 
-    def check_out(self):
+    def check_out(self) -> None:
         request = {"command": "check-out"}
         response = self.service.send_recv_plist(request)
         if response.get("result") != "success":

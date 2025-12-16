@@ -34,10 +34,14 @@ class Device:
     def is_irecv(self) -> bool:
         return self._irecv is not None
 
-    @cached_property
+    @property
     def lockdown(self) -> LockdownClient:
         assert self._lockdown is not None
         return self._lockdown
+
+    @lockdown.setter
+    def lockdown(self, lockdown: Optional[LockdownClient]) -> None:
+        self._lockdown = lockdown
 
     @cached_property
     def irecv(self) -> IRecv:
@@ -45,19 +49,19 @@ class Device:
         return self._irecv
 
     @cached_property
-    def ecid(self):
+    def ecid(self) -> int:
         if self.lockdown:
             return self.lockdown.ecid
         return self.irecv.ecid
 
     @cached_property
-    def hardware_model(self):
+    def hardware_model(self) -> str:
         if self.lockdown:
             return self.lockdown.all_values["HardwareModel"].lower()
         return self.irecv.hardware_model
 
     @cached_property
-    def is_image4_supported(self):
+    def is_image4_supported(self) -> int:
         if self.lockdown:
             return self.lockdown.get_value(key="Image4Supported")
         return self.irecv.is_image4_supported
@@ -72,7 +76,7 @@ class Device:
         return {}
 
     @cached_property
-    def ap_nonce(self):
+    def ap_nonce(self) -> Optional[bytes]:
         if self.lockdown:
             ap_nonce_from_ap_parameters = self.ap_parameters.get("ApNonce")
             if ap_nonce_from_ap_parameters:
@@ -81,7 +85,7 @@ class Device:
         return self.irecv.ap_nonce
 
     @cached_property
-    def sep_nonce(self):
+    def sep_nonce(self) -> Optional[bytes]:
         if self.lockdown:
             sep_nonce_from_ap_parameters = self.ap_parameters.get("SepNonce")
             if sep_nonce_from_ap_parameters:
@@ -106,5 +110,6 @@ class Device:
     @cached_property
     def product_type(self) -> str:
         if self.lockdown:
+            assert self.lockdown.product_type is not None
             return self.lockdown.product_type
         return self.irecv.product_type

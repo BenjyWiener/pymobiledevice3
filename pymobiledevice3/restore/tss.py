@@ -1,8 +1,8 @@
 import asyncio
 import logging
 import plistlib
-import typing
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Optional
 from uuid import uuid4
 
 import asn1
@@ -26,8 +26,8 @@ def get_with_or_without_comma(obj: dict, k: str, default=None):
     return val
 
 
-def is_fw_payload(info: dict[str, typing.Any]) -> bool:
-    return (
+def is_fw_payload(info: dict[str, Any]) -> bool:
+    return bool(
         info.get("IsFirmwarePayload")
         or info.get("IsSecondaryFirmwarePayload")
         or info.get("IsFUDFirmware")
@@ -61,8 +61,8 @@ class TSSResponse(dict):
 
 
 class TSSRequest:
-    def __init__(self):
-        self._request: dict[str, typing.Any] = {
+    def __init__(self) -> None:
+        self._request: dict[str, Any] = {
             "@HostPlatformInfo": "mac",
             "@VersionInfo": TSS_CLIENT_VERSION_STRING,
             "@UUID": str(uuid4()).upper(),
@@ -614,7 +614,7 @@ class TSSRequest:
 
         return result_comp_name
 
-    def add_baseband_tags(self, parameters: dict, overrides=None):
+    def add_baseband_tags(self, parameters: dict, overrides: Optional[dict] = None) -> None:
         self._request["@BBTicket"] = True
 
         keys_to_copy = (
@@ -656,7 +656,7 @@ class TSSRequest:
         if overrides:
             self._request.update(overrides)
 
-    def add_rose_tags(self, parameters: dict, overrides: typing.Optional[dict] = None):
+    def add_rose_tags(self, parameters: dict, overrides: Optional[dict] = None) -> None:
         manifest = parameters["Manifest"]
 
         # add tags indicating we want to get the Rap,Ticket
@@ -685,6 +685,7 @@ class TSSRequest:
 
         for key in keys_to_copy_bool:
             value = get_with_or_without_comma(parameters, key)
+            assert isinstance(value, bytes)
             self._request[key] = bytes_to_uint(value) == 1
 
         nonce = get_with_or_without_comma(parameters, "Rap,Nonce")
@@ -723,7 +724,7 @@ class TSSRequest:
         if overrides is not None:
             self._request.update(overrides)
 
-    def add_veridian_tags(self, parameters: dict, overrides: typing.Optional[dict] = None):
+    def add_veridian_tags(self, parameters: dict, overrides: Optional[dict] = None):
         manifest = parameters["Manifest"]
 
         # add tags indicating we want to get the Rap,Ticket
@@ -766,7 +767,7 @@ class TSSRequest:
         if overrides is not None:
             self._request.update(overrides)
 
-    def add_tcon_tags(self, parameters: dict, overrides: typing.Optional[dict] = None):
+    def add_tcon_tags(self, parameters: dict, overrides: Optional[dict] = None):
         manifest = parameters["Manifest"]
 
         # add tags indicating we want to get the Baobab,Ticket

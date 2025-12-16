@@ -30,9 +30,7 @@ class SpringBoardServicesService(LockdownService):
         return self.service.send_recv_plist(cmd)
 
     def set_icon_state(self, newstate: Optional[list] = None) -> None:
-        if newstate is None:
-            newstate = {}
-        self.service.send_plist({"command": "setIconState", "iconState": newstate})
+        self.service.send_plist({"command": "setIconState", "iconState": newstate if newstate is not None else {}})
         self.service.recv_prefixed()
 
     def get_icon_pngdata(self, bundle_id: str) -> bytes:

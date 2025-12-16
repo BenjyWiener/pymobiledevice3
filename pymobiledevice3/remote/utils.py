@@ -33,7 +33,7 @@ async def get_rsds(
     return result
 
 
-def get_remoted_process() -> psutil.Process:
+def get_remoted_process() -> Optional[psutil.Process]:
     for process in psutil.process_iter():
         if process.pid == 0:
             # skip kernel task

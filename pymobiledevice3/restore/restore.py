@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import requests
+from ipsw_parser.build_identity import BuildIdentity
 from tqdm import tqdm, trange
 
 from pymobiledevice3.exceptions import ConnectionFailedError, NoDeviceConnectedError, PyMobileDevice3Exception
@@ -48,8 +49,13 @@ known_errors = {
 
 class Restore(BaseRestore):
     def __init__(
-        self, ipsw: zipfile.ZipFile, device: Device, tss=None, behavior: Behavior = Behavior.Update, ignore_fdr=False
-    ):
+        self,
+        ipsw: zipfile.ZipFile,
+        device: Device,
+        tss: Optional[dict] = None,
+        behavior: Behavior = Behavior.Update,
+        ignore_fdr: bool = False,
+    ) -> None:
         super().__init__(ipsw, device, tss, behavior)
         self.recovery = Recovery(ipsw, device, tss=tss, behavior=behavior)
         self.bbtss: Optional[TSSResponse] = None
@@ -144,6 +150,7 @@ class Restore(BaseRestore):
 
         asr_port = message.get("DataPort", DEFAULT_ASR_SYNC_PORT)
         self.logger.info(f"connecting to ASR on port {asr_port}")
+        assert self._restored is not None
         asr = ASRClient(self._restored.udid)
         while True:
             try:
@@ -169,7 +176,7 @@ class Restore(BaseRestore):
 
         await asr.close()
 
-    def get_build_identity_from_request(self, msg):
+    def get_build_identity_from_request(self, msg: dict) -> BuildIdentity:
         return self.get_build_identity(msg["Arguments"].get("IsRecoveryOS", False))
 
     async def send_buildidentity(self, message: dict) -> None:
@@ -182,7 +189,7 @@ class Restore(BaseRestore):
         self.logger.info("Sending BuildIdentityDict now...")
         await service.aio_send_plist(req)
 
-    def extract_global_manifest(self) -> dict:
+    def extract_global_manifest(self) -> bytes:
         build_info = self.build_identity.get("Info")
         if build_info is None:
             raise PyMobileDevice3Exception('build identity does not contain an "Info" element')
@@ -212,6 +219,7 @@ class Restore(BaseRestore):
         elif image_name == "__SystemVersion__":
             data = self.ipsw.system_version
         else:
+            assert self.recovery.tss is not None
             data = self.get_personalized_data(component_name, tss=self.recovery.tss)
 
         self.logger.info(f"Sending {component_name} now...")
@@ -262,7 +270,9 @@ class Restore(BaseRestore):
 
         self.logger.info(f"Done sending {component_name}")
 
-    async def get_recovery_os_local_policy_tss_response(self, args, build_identity=None):
+    async def get_recovery_os_local_policy_tss_response(
+        self, args: dict, build_identity: Optional[BuildIdentity] = None
+    ) -> TSSResponse:
         if build_identity is None:
             build_identity = self.build_identity
 
@@ -275,7 +285,7 @@ class Restore(BaseRestore):
             "ApSupportsImg4": True,
         }
 
-        build_identity.populate_tss_request_parameters(parameters)
+        self.populate_tss_request_from_manifest(parameters)
 
         # Add Ap,LocalPolicy
         lpol = {
@@ -301,7 +311,7 @@ class Restore(BaseRestore):
         self.logger.info("Requesting SHSH blobs...")
         return await request.send_receive()
 
-    def get_build_identity(self, is_recovery_os: bool):
+    def get_build_identity(self, is_recovery_os: bool) -> BuildIdentity:
         if is_recovery_os:
             variant = RESTORE_VARIANT_MACOS_RECOVERY_OS
         elif self.build_identity.restore_behavior == Behavior.Erase.value:
@@ -356,7 +366,7 @@ class Restore(BaseRestore):
         self.logger.info("Sending RootTicket now...")
         await service.aio_send_plist({"RootTicketData": self.recovery.tss.ap_img4_ticket})
 
-    async def send_nor(self, message: dict):
+    async def send_nor(self, message: dict) -> None:
         self.logger.info("About to send NORData...")
         service = await self._get_service_for_data_request(message)
 
@@ -396,8 +406,9 @@ class Restore(BaseRestore):
             raise PyMobileDevice3Exception("Unable to get list of firmware files.")
 
         component = "LLB"
+        assert self.recovery.tss is not None
         llb_data = self.get_personalized_data(component, tss=self.recovery.tss, path=llb_path)
-        req = {"LlbImageData": llb_data}
+        req: dict[str, object] = {"LlbImageData": llb_data}
 
         norimage = {} if flash_version_1 else []
 
@@ -409,7 +420,7 @@ class Restore(BaseRestore):
 
             nor_data = self.get_personalized_data(component, tss=self.recovery.tss, path=comppath)
 
-            if flash_version_1:
+            if isinstance(norimage, dict):  # flash_version_1
                 norimage[component] = nor_data
             else:
                 # make sure iBoot is the first entry in the array
@@ -427,7 +438,7 @@ class Restore(BaseRestore):
             if comp.path:
                 if component == "SepStage1":
                     component = "SEPPatch"
-                req[f"{component}ImageData"] = self.get_personalized_data(comp.name, comp.data, self.recovery.tss)
+                req[f"{component}ImageData"] = self.get_personalized_data(comp.name, comp.data, tss=self.recovery.tss)
 
         self.logger.info("Sending NORData now...")
         await service.aio_send_plist(req)

@@ -10,9 +10,11 @@
 
 import io
 import logging
-from typing import Optional
+from dataclasses import dataclass
+from typing import Literal, Optional, Union
 
 from construct import Bytes, ChecksumError, Int16ul, Int32ul, Int64ul, Struct
+from construct_typed import DataclassMixin, DataclassStruct, csfield
 
 logger = logging.getLogger(__name__)
 
@@ -39,123 +41,154 @@ ELFCLASSNONE, ELFCLASS32, ELFCLASS64 = 0, 1, 2
 # Construct Structs (little-endian)
 # -----------------------------------------------------------------------------
 
+
 # MBN v1
-MBN_V1 = Struct(
-    "type" / Int32ul,
-    "unk_0x04" / Int32ul,
-    "unk_0x08" / Int32ul,
-    "unk_0x0c" / Int32ul,
-    "data_size" / Int32ul,  # total - sizeof(header)
-    "sig_offset" / Int32ul,  # real offset = enc_sig_offset & 0xFFFFFF00 (FYI)
-    "unk_0x18" / Int32ul,
-    "unk_0x1c" / Int32ul,
-    "unk_0x20" / Int32ul,
-    "unk_0x24" / Int32ul,
-)
+@dataclass
+class MBN_V1(DataclassMixin):
+    type: int = csfield(Int32ul)
+    unk_0x04: int = csfield(Int32ul)
+    unk_0x08: int = csfield(Int32ul)
+    unk_0x0c: int = csfield(Int32ul)
+    data_size: int = csfield(Int32ul)  # total - sizeof(header)
+    sig_offset: int = csfield(Int32ul)  # real offset = enc_sig_offset & 0xFFFFFF00 (FYI)
+    unk_0x18: int = csfield(Int32ul)
+    unk_0x1c: int = csfield(Int32ul)
+    unk_0x20: int = csfield(Int32ul)
+    unk_0x24: int = csfield(Int32ul)
+
+
+mbn_v1_struct = DataclassStruct(MBN_V1)
+
 
 # MBN v2
-MBN_V2 = Struct(
-    "magic1" / Bytes(8),
-    "unk_0x08" / Int32ul,
-    "unk_0x0c" / Int32ul,  # 0xFFFFFFFF
-    "unk_0x10" / Int32ul,  # 0xFFFFFFFF
-    "header_size" / Int32ul,
-    "unk_0x18" / Int32ul,
-    "data_size" / Int32ul,  # total - sizeof(header)
-    "sig_offset" / Int32ul,
-    "unk_0x24" / Int32ul,
-    "unk_0x28" / Int32ul,
-    "unk_0x2c" / Int32ul,
-    "unk_0x30" / Int32ul,
-    "unk_0x34" / Int32ul,  # 0x1
-    "unk_0x38" / Int32ul,  # 0x1
-    "unk_0x3c" / Int32ul,  # 0xFFFFFFFF
-    "unk_0x40" / Int32ul,  # 0xFFFFFFFF
-    "unk_0x44" / Int32ul,  # 0xFFFFFFFF
-    "unk_0x48" / Int32ul,  # 0xFFFFFFFF
-    "unk_0x4c" / Int32ul,  # 0xFFFFFFFF
-)
+@dataclass
+class MBN_V2(DataclassMixin):
+    magic1: bytes = csfield(Bytes(8))
+    unk_0x08: int = csfield(Int32ul)
+    unk_0x0c: int = csfield(Int32ul)  # 0xFFFFFFFF
+    unk_0x10: int = csfield(Int32ul)  # 0xFFFFFFFF
+    header_size: int = csfield(Int32ul)
+    unk_0x18: int = csfield(Int32ul)
+    data_size: int = csfield(Int32ul)  # total - sizeof(header)
+    sig_offset: int = csfield(Int32ul)
+    unk_0x24: int = csfield(Int32ul)
+    unk_0x28: int = csfield(Int32ul)
+    unk_0x2c: int = csfield(Int32ul)
+    unk_0x30: int = csfield(Int32ul)
+    unk_0x34: int = csfield(Int32ul)  # 0x1
+    unk_0x38: int = csfield(Int32ul)  # 0x1
+    unk_0x3c: int = csfield(Int32ul)  # 0xFFFFFFFF
+    unk_0x40: int = csfield(Int32ul)  # 0xFFFFFFFF
+    unk_0x44: int = csfield(Int32ul)  # 0xFFFFFFFF
+    unk_0x48: int = csfield(Int32ul)  # 0xFFFFFFFF
+    unk_0x4c: int = csfield(Int32ul)  # 0xFFFFFFFF
+
+
+mbn_v2_struct = DataclassStruct(MBN_V2)
+
 
 # MBN BIN
-MBN_BIN = Struct(
-    "magic" / Bytes(8),
-    "unk_0x08" / Int32ul,
-    "version" / Int32ul,
-    "total_size" / Int32ul,  # includes header
-    "unk_0x14" / Int32ul,
-)
+@dataclass
+class MBN_BIN(DataclassMixin):
+    magic: bytes = csfield(Bytes(8))
+    unk_0x08: int = csfield(Int32ul)
+    version: int = csfield(Int32ul)
+    total_size: int = csfield(Int32ul)  # includes header
+    unk_0x14: int = csfield(Int32ul)
+
+
+mbn_bin_struct = DataclassStruct(MBN_BIN)
+
 
 # v7 trailer header used by mbn_mav25_stitch
-MBN_V7 = Struct(
-    "reserved" / Int32ul,
-    "version" / Int32ul,
-    "common_metadata_size" / Int32ul,
-    "qti_metadata_size" / Int32ul,
-    "oem_metadata_size" / Int32ul,
-    "hash_table_size" / Int32ul,
-    "qti_signature_size" / Int32ul,
-    "qti_certificate_chain_size" / Int32ul,
-    "oem_signature_size" / Int32ul,
-    "oem_certificate_chain_size" / Int32ul,
-)
+@dataclass
+class MBN_V7(DataclassMixin):
+    reserved: int = csfield(Int32ul)
+    version: int = csfield(Int32ul)
+    common_metadata_size: int = csfield(Int32ul)
+    qti_metadata_size: int = csfield(Int32ul)
+    oem_metadata_size: int = csfield(Int32ul)
+    hash_table_size: int = csfield(Int32ul)
+    qti_signature_size: int = csfield(Int32ul)
+    qti_certificate_chain_size: int = csfield(Int32ul)
+    oem_signature_size: int = csfield(Int32ul)
+    oem_certificate_chain_size: int = csfield(Int32ul)
+
+
+mbn_v7_struct = DataclassStruct(MBN_V7)
+
 
 # ELF (minimal fields we need)
-ELF32_Ehdr = Struct(
-    "e_ident" / Bytes(16),
-    "e_type" / Int16ul,
-    "e_machine" / Int16ul,
-    "e_version" / Int32ul,
-    "e_entry" / Int32ul,
-    "e_phoff" / Int32ul,
-    "e_shoff" / Int32ul,
-    "e_flags" / Int32ul,
-    "e_ehsize" / Int16ul,
-    "e_phentsize" / Int16ul,
-    "e_phnum" / Int16ul,
-    "e_shentsize" / Int16ul,
-    "e_shnum" / Int16ul,
-    "e_shstrndx" / Int16ul,
-)
+@dataclass
+class ELF32_Ehdr(DataclassMixin):
+    e_ident: bytes = csfield(Bytes(8))
+    e_type: int = csfield(Int16ul)
+    e_machine: int = csfield(Int16ul)
+    e_version: int = csfield(Int32ul)
+    e_entry: int = csfield(Int32ul)
+    e_phoff: int = csfield(Int32ul)
+    e_shoff: int = csfield(Int32ul)
+    e_flags: int = csfield(Int32ul)
+    e_ehsize: int = csfield(Int16ul)
+    e_phentsize: int = csfield(Int16ul)
+    e_phnum: int = csfield(Int16ul)
+    e_shentsize: int = csfield(Int16ul)
+    e_shnum: int = csfield(Int16ul)
+    e_shstrndx: int = csfield(Int16ul)
 
-ELF64_Ehdr = Struct(
-    "e_ident" / Bytes(16),
-    "e_type" / Int16ul,
-    "e_machine" / Int16ul,
-    "e_version" / Int32ul,
-    "e_entry" / Int64ul,
-    "e_phoff" / Int64ul,
-    "e_shoff" / Int64ul,
-    "e_flags" / Int32ul,
-    "e_ehsize" / Int16ul,
-    "e_phentsize" / Int16ul,
-    "e_phnum" / Int16ul,
-    "e_shentsize" / Int16ul,
-    "e_shnum" / Int16ul,
-    "e_shstrndx" / Int16ul,
-)
 
-ELF32_Phdr = Struct(
-    "p_type" / Int32ul,
-    "p_offset" / Int32ul,
-    "p_vaddr" / Int32ul,
-    "p_paddr" / Int32ul,
-    "p_filesz" / Int32ul,
-    "p_memsz" / Int32ul,
-    "p_flags" / Int32ul,
-    "p_align" / Int32ul,
-)
+elf32_ehdr_struct = DataclassStruct(ELF32_Ehdr)
 
-ELF64_Phdr = Struct(
-    "p_type" / Int32ul,
-    "p_flags" / Int32ul,
-    "p_offset" / Int64ul,
-    "p_vaddr" / Int64ul,
-    "p_paddr" / Int64ul,
-    "p_filesz" / Int64ul,
-    "p_memsz" / Int64ul,
-    "p_align" / Int64ul,
-)
 
+@dataclass
+class ELF64_Ehdr(DataclassMixin):
+    e_ident: bytes = csfield(Bytes(8))
+    e_type: int = csfield(Int16ul)
+    e_machine: int = csfield(Int16ul)
+    e_version: int = csfield(Int32ul)
+    e_entry: int = csfield(Int64ul)
+    e_phoff: int = csfield(Int64ul)
+    e_shoff: int = csfield(Int64ul)
+    e_flags: int = csfield(Int32ul)
+    e_ehsize: int = csfield(Int16ul)
+    e_phentsize: int = csfield(Int16ul)
+    e_phnum: int = csfield(Int16ul)
+    e_shentsize: int = csfield(Int16ul)
+    e_shnum: int = csfield(Int16ul)
+    e_shstrndx: int = csfield(Int16ul)
+
+
+elf64_ehdr_struct = DataclassStruct(ELF64_Ehdr)
+
+
+@dataclass
+class ELF32_Phdr(DataclassMixin):
+    p_type: int = csfield(Int32ul)
+    p_offset: int = csfield(Int32ul)
+    p_vaddr: int = csfield(Int32ul)
+    p_paddr: int = csfield(Int32ul)
+    p_filesz: int = csfield(Int32ul)
+    p_memsz: int = csfield(Int32ul)
+    p_flags: int = csfield(Int32ul)
+    p_align: int = csfield(Int32ul)
+
+
+elf32_phdr_struct = DataclassStruct(ELF32_Phdr)
+
+
+@dataclass
+class ELF64_Phdr(DataclassMixin):
+    p_type: int = csfield(Int32ul)
+    p_flags: int = csfield(Int32ul)
+    p_offset: int = csfield(Int64ul)
+    p_vaddr: int = csfield(Int64ul)
+    p_paddr: int = csfield(Int64ul)
+    p_filesz: int = csfield(Int64ul)
+    p_memsz: int = csfield(Int64ul)
+    p_align: int = csfield(Int64ul)
+
+
+elf64_phdr_struct = DataclassStruct(ELF64_Phdr)
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -173,32 +206,38 @@ def _is_valid_elf_ident(e_ident: bytes) -> bool:
     )
 
 
-def _read_elf_headers(data: bytes):
+def _read_elf_headers(
+    data: bytes,
+) -> Union[tuple[None, None], tuple[Literal["ELF64"], ELF64_Ehdr], tuple[Literal["ELF32"], ELF32_Ehdr]]:
     if len(data) < EI_NIDENT:
         return None, None
     e_ident = data[:EI_NIDENT]
     if not _is_valid_elf_ident(e_ident):
         return None, None
     if e_ident[EI_CLASS] == ELFCLASS64:
-        if len(data) < ELF64_Ehdr.sizeof():
+        if len(data) < elf64_ehdr_struct.sizeof():
             return None, None
-        hdr = ELF64_Ehdr.parse(data[: ELF64_Ehdr.sizeof()])
+        hdr = elf64_ehdr_struct.parse(data[: elf64_ehdr_struct.sizeof()])
         return "ELF64", hdr
     elif e_ident[EI_CLASS] == ELFCLASS32:
-        if len(data) < ELF32_Ehdr.sizeof():
+        if len(data) < elf64_ehdr_struct.sizeof():
             return None, None
-        hdr = ELF32_Ehdr.parse(data[: ELF32_Ehdr.sizeof()])
+        hdr = elf32_ehdr_struct.parse(data[: elf32_ehdr_struct.sizeof()])
         return "ELF32", hdr
     return None, None
 
 
-def _read_program_headers(data: bytes, kind: str, hdr) -> list:
-    phdrs = []
+def _read_program_headers(
+    data: bytes, kind: str, hdr: Union[ELF32_Ehdr, ELF64_Ehdr]
+) -> list[Union[ELF64_Phdr, ELF32_Phdr]]:
+    phdrs: list[Union[ELF64_Phdr, ELF32_Phdr]] = []
+    phdr_struct = elf64_phdr_struct if kind == "ELF64" else elf32_phdr_struct
+
     if hdr.e_phnum == 0:
         logger.error("%s: ELF has no program sections", "_read_program_headers")
         return phdrs
 
-    table_size = hdr.e_phnum * (ELF64_Phdr.sizeof() if kind == "ELF64" else ELF32_Phdr.sizeof())
+    table_size = hdr.e_phnum * (elf64_phdr_struct.sizeof() if kind == "ELF64" else elf32_phdr_struct.sizeof())
     if hdr.e_phoff + table_size > len(data):
         logger.error("%s: Program header table is out of bounds", "_read_program_headers")
         return []
@@ -206,14 +245,13 @@ def _read_program_headers(data: bytes, kind: str, hdr) -> list:
     table = data[hdr.e_phoff : hdr.e_phoff + table_size]
     bio = io.BytesIO(table)
     for _ in range(hdr.e_phnum):
-        ph = ELF64_Phdr.parse_stream(bio) if kind == "ELF64" else ELF32_Phdr.parse_stream(bio)
-        phdrs.append(ph)
+        phdrs.append(phdr_struct.parse_stream(bio))
     return phdrs
 
 
 def _elf_last_segment_end(data: bytes) -> Optional[int]:
     kind, hdr = _read_elf_headers(data)
-    if not hdr:
+    if kind is None or hdr is None:
         return None
     phdrs = _read_program_headers(data, kind, hdr)
     if not phdrs:
@@ -223,9 +261,9 @@ def _elf_last_segment_end(data: bytes) -> Optional[int]:
     return int(last.p_offset + last.p_filesz)
 
 
-def _mbn_v7_header_sizes_valid(h, sect_size: int) -> bool:
+def _mbn_v7_header_sizes_valid(h: MBN_V7, sect_size: int) -> bool:
     total = (
-        MBN_V7.sizeof()
+        DataclassStruct(MBN_V7).sizeof()
         + h.common_metadata_size
         + h.qti_metadata_size
         + h.oem_metadata_size
@@ -238,7 +276,7 @@ def _mbn_v7_header_sizes_valid(h, sect_size: int) -> bool:
     return total <= sect_size
 
 
-def _mbn_v7_header_sizes_expected(h) -> bool:
+def _mbn_v7_header_sizes_expected(h: MBN_V7) -> bool:
     return (
         (h.qti_metadata_size in (0, 0xE0))
         and (h.oem_metadata_size in (0, 0xE0))
@@ -247,7 +285,7 @@ def _mbn_v7_header_sizes_expected(h) -> bool:
     )
 
 
-def _mbn_v7_log(h, func: str, prefix: str) -> None:
+def _mbn_v7_log(h: MBN_V7, func: str, prefix: str) -> None:
     logger.debug(
         "%s: %s header {version=0x%x, common_metadata_size=0x%x, qti_metadata_size=0x%x, "
         "oem_metadata_size=0x%x, hash_table_size=0x%x, qti_signature_size=0x%x, "
@@ -296,11 +334,11 @@ def mbn_stitch(data: bytes, blob: bytes) -> Optional[bytes]:
     try:
         # MBN v2
         if data_size > MBN_V2_MAGIC_SIZE and data[:MBN_V2_MAGIC_SIZE] == MBN_V2_MAGIC:
-            if data_size < MBN_V2.sizeof():
+            if data_size < mbn_v2_struct.sizeof():
                 logger.error("%s: truncated MBN v2 header", "mbn_stitch")
                 return None
-            h = MBN_V2.parse(data[: MBN_V2.sizeof()])
-            parsed_size = h.data_size + MBN_V2.sizeof()
+            h = mbn_v2_struct.parse(data[: mbn_v2_struct.sizeof()])
+            parsed_size = h.data_size + mbn_v2_struct.sizeof()
             logger.debug(
                 "%s: encountered MBN v2 image, parsed_size = 0x%x",
                 "mbn_stitch",
@@ -309,11 +347,11 @@ def mbn_stitch(data: bytes, blob: bytes) -> Optional[bytes]:
 
         # MBN v1
         elif data_size > MBN_V1_MAGIC_SIZE and data[:MBN_V1_MAGIC_SIZE] == MBN_V1_MAGIC:
-            if data_size < MBN_V1.sizeof():
+            if data_size < mbn_v1_struct.sizeof():
                 logger.error("%s: truncated MBN v1 header", "mbn_stitch")
                 return None
-            h = MBN_V1.parse(data[: MBN_V1.sizeof()])
-            parsed_size = h.data_size + MBN_V1.sizeof()
+            h = mbn_v1_struct.parse(data[: mbn_v1_struct.sizeof()])
+            parsed_size = h.data_size + mbn_v1_struct.sizeof()
             logger.debug(
                 "%s: encountered MBN v1 image, parsed_size = 0x%x",
                 "mbn_stitch",
@@ -325,10 +363,10 @@ def mbn_stitch(data: bytes, blob: bytes) -> Optional[bytes]:
             data_size > (MBN_BIN_MAGIC_SIZE + MBN_BIN_MAGIC_OFFSET)
             and data[MBN_BIN_MAGIC_OFFSET : MBN_BIN_MAGIC_OFFSET + MBN_BIN_MAGIC_SIZE] == MBN_BIN_MAGIC
         ):
-            if data_size < MBN_BIN.sizeof():
+            if data_size < mbn_bin_struct.sizeof():
                 logger.error("%s: truncated MBN BIN header", "mbn_stitch")
                 return None
-            h = MBN_BIN.parse(data[: MBN_BIN.sizeof()])
+            h = mbn_bin_struct.parse(data[: mbn_bin_struct.sizeof()])
             parsed_size = h.total_size
             logger.debug(
                 "%s: encountered MBN BIN image, parsed_size = 0x%x",
@@ -410,15 +448,15 @@ def mbn_mav25_stitch(data: bytes, blob: bytes) -> Optional[bytes]:
     data_size, blob_size = len(data), len(blob)
 
     kind, ehdr = _read_elf_headers(data)
-    if not ehdr:
+    if kind is None or ehdr is None:
         logger.error("%s: data is not a valid ELF", "mbn_mav25_stitch")
         return None
 
-    if blob_size < MBN_V7.sizeof():
+    if blob_size < mbn_v7_struct.sizeof():
         logger.error("%s: header is bigger than blob", "mbn_mav25_stitch")
         return None
 
-    src = MBN_V7.parse(blob[: MBN_V7.sizeof()])
+    src = mbn_v7_struct.parse(blob[: mbn_v7_struct.sizeof()])
     _mbn_v7_log(src, "mbn_mav25_stitch", "src")
     if src.version != 7:
         logger.error(
@@ -459,7 +497,7 @@ def mbn_mav25_stitch(data: bytes, blob: bytes) -> Optional[bytes]:
             sect_size,
         )
         return None
-    if sect_size < MBN_V7.sizeof():
+    if sect_size < mbn_v7_struct.sizeof():
         logger.error(
             "%s: dest header is bigger than the section (0x%x)",
             "mbn_mav25_stitch",
@@ -467,7 +505,7 @@ def mbn_mav25_stitch(data: bytes, blob: bytes) -> Optional[bytes]:
         )
         return None
 
-    dest = MBN_V7.parse(data[sect_off : sect_off + MBN_V7.sizeof()])
+    dest = mbn_v7_struct.parse(data[sect_off : sect_off + mbn_v7_struct.sizeof()])
     _mbn_v7_log(dest, "mbn_mav25_stitch", "dest")
     if dest.version != 7:
         logger.error(
@@ -507,7 +545,9 @@ def mbn_mav25_stitch(data: bytes, blob: bytes) -> Optional[bytes]:
         )
 
     # compute new layout from src
-    new_metadata_size = MBN_V7.sizeof() + src.common_metadata_size + src.qti_metadata_size + src.oem_metadata_size
+    new_metadata_size = (
+        mbn_v7_struct.sizeof() + src.common_metadata_size + src.qti_metadata_size + src.oem_metadata_size
+    )
     new_metadata_and_hash_table_size = new_metadata_size + src.hash_table_size
     new_oem_sig_and_cert_chain_size = src.oem_signature_size + src.oem_certificate_chain_size
 

@@ -15,7 +15,9 @@ class NotificationProxyService(LockdownService):
     INSECURE_SERVICE_NAME = "com.apple.mobile.insecure_notification_proxy"
     RSD_INSECURE_SERVICE_NAME = "com.apple.mobile.insecure_notification_proxy.shim.remote"
 
-    def __init__(self, lockdown: LockdownServiceProvider, insecure=False, timeout: Optional[Union[float, int]] = None):
+    def __init__(
+        self, lockdown: LockdownServiceProvider, insecure: bool = False, timeout: Optional[Union[float, int]] = None
+    ) -> None:
         if isinstance(lockdown, RemoteServiceDiscoveryService):
             secure_service_name = self.RSD_SERVICE_NAME
             insecure_service_name = self.RSD_INSECURE_SERVICE_NAME
