@@ -26,7 +26,7 @@ from pymobiledevice3.remote.xpc_message import (
     create_xpc_wrapper,
     decode_xpc_object,
 )
-from pymobiledevice3.utils import start_ipython_shell
+from pymobiledevice3.utils import _connect_with_proxy, start_ipython_shell
 
 # Extracted by sniffing `remoted` traffic via Wireshark
 DEFAULT_SETTINGS_MAX_CONCURRENT_STREAMS = 100
@@ -56,9 +56,10 @@ resp = await client.send_receive_request({"Command": "DoSomething"})
 
 
 class RemoteXPCConnection:
-    def __init__(self, address: tuple[str, int]):
+    def __init__(self, address: tuple[str, int], *, proxy_url: Optional[str] = None) -> None:
         self._previous_frame_data = b""
         self.address = address
+        self.proxy_url = proxy_url
         self.next_message_id: dict[int, int] = {ROOT_CHANNEL: 0, REPLY_CHANNEL: 0}
         self.peer_info = None
         self._reader: Optional[asyncio.StreamReader] = None
@@ -75,7 +76,9 @@ class RemoteXPCConnection:
         await self.close()
 
     async def connect(self) -> None:
-        self._reader, self._writer = await asyncio.open_connection(self.address[0], self.address[1])
+        self._reader, self._writer = await asyncio.open_connection(
+            sock=await _connect_with_proxy(self.address, self.proxy_url)
+        )
         try:
             await self._do_handshake()
         except Exception:

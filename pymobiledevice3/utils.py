@@ -1,4 +1,5 @@
 import asyncio
+import socket
 import traceback
 from functools import wraps
 from pathlib import Path
@@ -94,3 +95,19 @@ def file_download(url: str, outfile: Path, chunk_size=1024) -> None:
         for data in resp.iter_content(chunk_size=chunk_size):
             size = file.write(data)
             bar.update(size)
+
+
+async def _connect_with_proxy(address: tuple[str, int], proxy_url: Optional[str] = None) -> socket.socket:
+    loop = asyncio.get_event_loop()
+    if proxy_url is None:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        await loop.sock_connect(sock, address)
+        return sock
+
+    elif proxy_url.startswith("socks5://"):
+        from python_socks.async_.asyncio import Proxy
+
+        proxy = Proxy.from_url(proxy_url)
+        return await proxy.connect(dest_host=address[0], dest_port=address[1])
+
+    raise ValueError(f"Unsupported proxy URL scheme: {proxy_url!r}")

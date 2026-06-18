@@ -33,10 +33,16 @@ RSD_PORT = 58783
 
 
 class RemoteServiceDiscoveryService(LockdownServiceProvider):
-    def __init__(self, address: tuple[str, int], name: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        address: tuple[str, int],
+        name: Optional[str] = None,
+        *,
+        proxy_url: Optional[str] = None,
+    ) -> None:
         super().__init__()
         self.name = name
-        self.service = RemoteXPCConnection(address)
+        self.service = RemoteXPCConnection(address, proxy_url=proxy_url)
         self.peer_info: Optional[dict] = None
         self.lockdown: Optional[LockdownClient] = None
         self.all_values: Optional[dict] = None
@@ -148,7 +154,7 @@ class RemoteServiceDiscoveryService(LockdownServiceProvider):
         return {"Port": self.get_service_port(name), "EnableServiceSSL": False}
 
     async def create_service_connection(self, port: int) -> ServiceConnection:
-        return await ServiceConnection.create_using_tcp(self.service.address[0], port)
+        return await ServiceConnection.create_using_tcp(self.service.address[0], port, proxy_url=self.service.proxy_url)
 
     async def start_lockdown_service(self, name: str, include_escrow_bag: bool = False) -> ServiceConnection:
         service = await self.start_lockdown_service_without_checkin(name)
@@ -187,7 +193,10 @@ class RemoteServiceDiscoveryService(LockdownServiceProvider):
             raise
 
     def start_remote_service(self, name: str) -> RemoteXPCConnection:
-        service = RemoteXPCConnection((self.service.address[0], self.get_service_port(name)))
+        service = RemoteXPCConnection(
+            (self.service.address[0], self.get_service_port(name)),
+            proxy_url=self.service.proxy_url,
+        )
         return service
 
     async def start_service(self, name: str) -> Union[RemoteXPCConnection, ServiceConnection]:

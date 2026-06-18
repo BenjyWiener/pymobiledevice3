@@ -20,7 +20,7 @@ from pymobiledevice3.exceptions import (
 )
 from pymobiledevice3.osu.os_utils import get_os_utils
 from pymobiledevice3.usbmux import MuxDevice, select_device
-from pymobiledevice3.utils import start_ipython_shell
+from pymobiledevice3.utils import _connect_with_proxy, start_ipython_shell
 
 DEFAULT_AFTER_IDLE_SEC = 3
 DEFAULT_INTERVAL_SEC = 3
@@ -133,7 +133,12 @@ class ServiceConnection:
 
     @staticmethod
     async def create_using_tcp(
-        hostname: str, port: int, keep_alive: bool = True, create_connection_timeout: int = DEFAULT_TIMEOUT
+        hostname: str,
+        port: int,
+        keep_alive: bool = True,
+        create_connection_timeout: int = DEFAULT_TIMEOUT,
+        *,
+        proxy_url: Optional[str] = None,
     ) -> "ServiceConnection":
         """
         Create a ServiceConnection using a TCP connection.
@@ -145,7 +150,8 @@ class ServiceConnection:
         :return: A ServiceConnection object.
         """
         reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(hostname, port), timeout=create_connection_timeout
+            asyncio.open_connection(sock=await _connect_with_proxy((hostname, port), proxy_url)),
+            timeout=create_connection_timeout,
         )
         sock = writer.get_extra_info("socket")
         if sock is None:

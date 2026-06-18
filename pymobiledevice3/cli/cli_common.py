@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 import uuid
-from collections.abc import Awaitable
+from collections.abc import Coroutine
 from contextlib import suppress
 from functools import wraps
 from textwrap import dedent
@@ -134,7 +134,7 @@ def is_invoked_for_completion() -> bool:
 cli_loop = get_asyncio_loop()
 
 
-def async_command(func: Callable[P, Awaitable[R]]) -> Callable[P, R]:
+def async_command(func: Callable[P, Coroutine[None, None, R]]) -> Callable[P, R]:
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         task = cli_loop.create_task(func(*args, **kwargs))
@@ -155,7 +155,7 @@ async def get_mobdev2_devices(udid: Optional[str] = None) -> list[TcpLockdownCli
     return [lockdown async for _, lockdown in get_mobdev2_lockdowns(udid=udid)]
 
 
-async def _tunneld(udid: Optional[str] = None) -> Optional[RemoteServiceDiscoveryService]:
+async def _tunneld(udid: Optional[str], *, proxy_url: Optional[str]) -> Optional[RemoteServiceDiscoveryService]:
     if udid is None:
         return
 
@@ -164,7 +164,7 @@ async def _tunneld(udid: Optional[str] = None) -> Optional[RemoteServiceDiscover
     if ":" in udid:
         udid, port = udid.split(":")
 
-    rsds = await get_tunneld_devices((TUNNELD_DEFAULT_ADDRESS[0], int(port)))
+    rsds = await get_tunneld_devices((TUNNELD_DEFAULT_ADDRESS[0], int(port)), proxy_url=proxy_url)
     if len(rsds) == 0:
         raise NoDeviceConnectedError()
 
@@ -207,6 +207,15 @@ def make_rsd_dependency(*, allow_none: bool) -> Callable[..., Optional[RemoteSer
                 rich_help_panel=DEVICE_OPTIONS_PANEL_TITLE,
             ),
         ] = None,
+        proxy: Annotated[
+            Optional[str],
+            typer.Option(
+                envvar="PYMOBILEDEVICE3_PROXY",
+                metavar="URL",
+                help="Proxy URL to use for connecting to tunnels.",
+                rich_help_panel=DEVICE_OPTIONS_PANEL_TITLE,
+            ),
+        ] = None,
     ) -> Optional[RemoteServiceDiscoveryService]:
         if is_invoked_for_completion():
             # prevent lockdown connection establishment when in autocomplete mode
@@ -216,12 +225,12 @@ def make_rsd_dependency(*, allow_none: bool) -> Callable[..., Optional[RemoteSer
             raise UsageError("Illegal usage: --rsd is mutually exclusive with --tunnel.")
 
         if rsd is not None:
-            rsd_service = RemoteServiceDiscoveryService(rsd)
+            rsd_service = RemoteServiceDiscoveryService(rsd, proxy_url=proxy)
             cli_loop.run_until_complete(rsd_service.connect())
             return rsd_service
 
         if tunnel is not None or not allow_none:
-            return cli_loop.run_until_complete(_tunneld(tunnel or ""))
+            return cli_loop.run_until_complete(_tunneld(tunnel or "", proxy_url=proxy))
 
     return rsd_dependency
 
